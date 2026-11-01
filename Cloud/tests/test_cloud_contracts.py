@@ -18,6 +18,11 @@ class Contracts(unittest.IsolatedAsyncioTestCase):
                 await authorizer("Bearer " + ("x" * 40))
             self.assertEqual(caught.exception.status_code, 503)
 
+    def test_default_client_configuration_is_public_and_present(self):
+        self.assertTrue(cloud_app.PROJECT.startswith("https://"), "Supabase URL missing")
+        self.assertTrue(cloud_app.PROJECT.endswith(".supabase.co"), "Supabase URL invalid")
+        self.assertTrue(cloud_app.PUBLISHABLE.startswith("sb_publishable_"), "Supabase publishable key missing")
+
     async def test_responses_stream_preserves_actual_tool_id_and_schema(self):
         captured = []
         events = [

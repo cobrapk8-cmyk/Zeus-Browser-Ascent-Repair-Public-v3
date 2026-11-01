@@ -20,8 +20,8 @@ from .files import FilesGateway, Workspaces, WORKSPACE_LIMIT, GLOBAL_WORKSPACE, 
 from .providers import Models, provider_url, normalize_history
 from .terminal import Terminals
 
-PROJECT = (os.environ.get("ZEUS_SUPABASE_URL") or os.environ.get("SUPABASE_URL") or "https://example.invalid").rstrip("/")
-PUBLISHABLE = (os.environ.get("ZEUS_SUPABASE_PUBLISHABLE_KEY") or os.environ.get("SUPABASE_PUBLISHABLE_KEY") or os.environ.get("SUPABASE_ANON_KEY") or "")
+PROJECT = (os.environ.get("ZEUS_SUPABASE_URL") or os.environ.get("SUPABASE_URL") or "https://pdfzdcwkkgapcwsnezvn.supabase.co").rstrip("/")
+PUBLISHABLE = (os.environ.get("ZEUS_SUPABASE_PUBLISHABLE_KEY") or os.environ.get("SUPABASE_PUBLISHABLE_KEY") or os.environ.get("SUPABASE_ANON_KEY") or "sb_publishable_ByPkZ3pyYzYJBY9QZz6aXg_YYqMe1Lu")
 
 
 class Input(BaseModel):

@@ -5,8 +5,9 @@ import Security
 
 /// Public project configuration only. Administrative keys never belong in an IPA.
 public enum ZeusCloudConfiguration {
-    // Public source builds contain no project-specific endpoint or credentials.
-    // Optional values may be supplied as Xcode build settings; otherwise cloud auth stays disabled.
+    // Supabase publishable configuration is intentionally public; never place an admin key in an IPA.
+    private static let defaultProjectURL = URL(string: "https://pdfzdcwkkgapcwsnezvn.supabase.co")!
+    private static let defaultPublishableKey = "sb_publishable_ByPkZ3pyYzYJBY9QZz6aXg_YYqMe1Lu"
     private static func setting(_ key: String) -> String? {
         guard let raw = Bundle.main.object(forInfoDictionaryKey: key) as? String else { return nil }
         let value = raw.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -14,15 +15,17 @@ public enum ZeusCloudConfiguration {
         return value
     }
     public static let projectURL: URL = {
-        guard let raw = setting("ZEUS_SUPABASE_URL"),
-              let url = URL(string: raw), url.scheme == "https" else {
-            return URL(string: "https://example.invalid")!
-        }
-        return url
+        if let raw = setting("ZEUS_SUPABASE_URL"), let url = URL(string: raw),
+           url.scheme == "https", url.host?.hasSuffix(".supabase.co") == true { return url }
+        return defaultProjectURL
     }()
-    public static let publishableKey = setting("ZEUS_SUPABASE_PUBLISHABLE_KEY") ?? ""
+    public static let publishableKey: String = {
+        if let value = setting("ZEUS_SUPABASE_PUBLISHABLE_KEY"), value.hasPrefix("sb_publishable_") { return value }
+        return defaultPublishableKey
+    }()
     public static var isConfigured: Bool {
-        projectURL.host != "example.invalid" && !publishableKey.isEmpty
+        projectURL.scheme == "https" && projectURL.host?.hasSuffix(".supabase.co") == true &&
+        publishableKey.hasPrefix("sb_publishable_")
     }
     public static let callback = URL(string: "zeus-account://auth/callback")!
 }

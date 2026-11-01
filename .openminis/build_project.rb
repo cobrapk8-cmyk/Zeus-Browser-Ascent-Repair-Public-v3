@@ -164,8 +164,8 @@ app.build_configurations.each do |config|
   config.build_settings['MARKETING_VERSION'] = '4.0.0'
   config.build_settings['CURRENT_PROJECT_VERSION'] = '54'
   config.build_settings['INFOPLIST_KEY_CFBundleDisplayName'] = 'ZEUS'
-  config.build_settings['INFOPLIST_KEY_ZEUS_SUPABASE_URL'] = '$(ZEUS_SUPABASE_URL)'
-  config.build_settings['INFOPLIST_KEY_ZEUS_SUPABASE_PUBLISHABLE_KEY'] = '$(ZEUS_SUPABASE_PUBLISHABLE_KEY)'
+  config.build_settings['INFOPLIST_KEY_ZEUS_SUPABASE_URL'] = 'https://pdfzdcwkkgapcwsnezvn.supabase.co'
+  config.build_settings['INFOPLIST_KEY_ZEUS_SUPABASE_PUBLISHABLE_KEY'] = 'sb_publishable_ByPkZ3pyYzYJBY9QZz6aXg_YYqMe1Lu'
 end
 # A device `build` (unlike archive/install) did not strip the original app's
 # 49 MB symbol-name table. Keep debug symbols in the separate dSYM, not the IPA.

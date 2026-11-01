@@ -122,6 +122,14 @@ jobs:
           test ! -d "$app/_CodeSignature"
           test -d "$app/PlugIns"
           test "$(/usr/libexec/PlistBuddy -c 'Print CFBundleIdentifier' "$app/Info.plist")" = tools.rea.ZEUSBrowserAnalysis
+          python3 - "$app/Info.plist" <<'PY'
+          import plistlib, re, sys
+          with open(sys.argv[1], "rb") as f: info = plistlib.load(f)
+          url, key = info.get("ZEUS_SUPABASE_URL", ""), info.get("ZEUS_SUPABASE_PUBLISHABLE_KEY", "")
+          if not re.fullmatch(r"https://[A-Za-z0-9-]+\.supabase\.co", url): raise SystemExit("Supabase project URL missing from IPA")
+          if not re.fullmatch(r"sb_publishable_[A-Za-z0-9_-]+", key): raise SystemExit("Supabase publishable key missing from IPA")
+          print("Supabase client configuration verified in IPA")
+          PY
           xcrun lipo "$app/Minis" -verify_arch arm64
           python3 browser/.openminis/prune_resources.py "$app" > results/text-edition-resources.json
           python3 browser/.openminis/size_audit.py "$app" results/ipa-size-audit.json --strip
