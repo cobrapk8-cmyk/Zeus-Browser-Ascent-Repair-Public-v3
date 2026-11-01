@@ -73,10 +73,16 @@ jobs:
           PY
       - name: Boot selected simulator before tests
         if: matrix.sdk == 'iphonesimulator'
-        timeout-minutes: 6
+        timeout-minutes: 12
         run: |
           xcrun simctl boot "$COMIC_SIMULATOR" || true
-          xcrun simctl bootstatus "$COMIC_SIMULATOR" -b
+          if ! xcrun simctl bootstatus "$COMIC_SIMULATOR" -b; then
+            echo "boot attempt failed once; shutting down and retrying"
+            xcrun simctl shutdown "$COMIC_SIMULATOR" || true
+            sleep 10
+            xcrun simctl boot "$COMIC_SIMULATOR" || true
+            xcrun simctl bootstatus "$COMIC_SIMULATOR" -b
+          fi
       - name: Start deterministic provider fixture
         if: matrix.sdk == 'iphonesimulator'
         run: |
