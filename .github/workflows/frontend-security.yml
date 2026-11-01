@@ -1,0 +1,36 @@
+name: ZEUS frontend and backend security tests
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'frontend/**'
+      - 'backend/**'
+      - '.zeus-ci/comic/markdown-security.test.mjs'
+      - '.zeus-ci/comic/package.json'
+      - '.zeus-ci/comic/package-lock.json'
+      - '.github/workflows/frontend-security.yml'
+  pull_request:
+    paths:
+      - 'frontend/**'
+      - 'backend/**'
+      - '.zeus-ci/comic/markdown-security.test.mjs'
+      - '.zeus-ci/comic/package.json'
+      - '.zeus-ci/comic/package-lock.json'
+      - '.github/workflows/frontend-security.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  security-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm ci --prefix .zeus-ci/comic
+      - run: node --test .zeus-ci/comic/markdown-security.test.mjs
+      - run: npm test --prefix backend

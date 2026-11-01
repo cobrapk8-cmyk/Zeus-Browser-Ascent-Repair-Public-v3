@@ -1,0 +1,1503 @@
+/* Custom Fonts */
+@import url('https://fonts.googleapis.com/css2?family=Tajawal:wght@300;400;500;700&display=swap');
+
+:root{
+  --message-font-size: 18px;
+  --ui-base: clamp(15px, 0.9vw + 12px, 18px); /* نص الواجهة */
+  --bubble-max: 85%; /* سنضبطها بالأسفل لسطوح كبيرة */
+  --footer-h: 88px; /* ارتفاع افتراضي لحاوية الإدخال */
+}
+
+/* شاشة ثابتة بلا تمرير */
+html, body {
+  height: 100%;
+  overflow: hidden;            /* يمنع أي تمرير للصفحة */
+}
+
+/* نستخدم قيمة iOS من script.js (visualViewport) إن وُجدت */
+#app {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: var(--vhpx, 100svh); /* يسقط إلى 100svh إذا لم تُحتسب --vhpx */
+  overflow: hidden;
+}
+
+/* تأكد أن الحاويات الداخلية تملأ المساحة بلا تمرير داخلي */
+/* اترك الصفحة ثابتة، لكن اجعل الرسائل والسجل قابلين للتمرير */
+main, #messagesContainer, #welcomeScreen { height: 100%; }
+
+/* ✅ الرسائل: تمرير عمودي ناعم مثل ChatGPT */
+#messagesArea {
+  overflow-y: auto !important;
+  -webkit-overflow-scrolling: touch;   /* سلاسة على iOS */
+}
+
+/* السجل الجانبي */
+#chatHistory { overflow-y: auto !important; }
+
+/* Body & Background Styles */
+body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Tajawal", "Cairo", sans-serif;
+    background: #000000; /* Full black background */
+    transition: background 0.3s ease-in-out;
+    font-size: var(--ui-base); /* Base font size for UI elements (18px) */
+}
+
+.dark body {
+    background: #000000; /* Full black background */
+}
+
+/* Glass Effect */
+.glass-effect {
+    backdrop-filter: blur(20px);
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.dark .glass-effect {
+    background: rgba(0, 0, 0, 0.2);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+/* Chat Container */
+.chat-container {
+    background: transparent;
+    backdrop-filter: none;
+}
+
+.dark .chat-container {
+    background: transparent;
+}
+
+/* Chat Bubbles and Messages */
+.chat-bubble {
+    animation: slideUp 0.3s ease-out;
+    position: relative;
+    padding: 1rem;
+    font-size: var(--message-font-size); /* Controlled by settings slider */
+    font-weight: 400; /* Consistent font weight */
+    line-height: 1.5; /* Consistent line height */
+    width: fit-content; /* فقاعات تلتف حول النص */
+    max-width: var(--bubble-max); /* دام المتغيّر المرن */
+    word-wrap: break-word; /* كسر الكلمات الطويلة */
+    overflow-x: hidden; /* يمنع التمدد الأفقي أو ظهور التمرير الأفقي */
+}
+
+.message-content {
+    overflow-wrap: break-word;
+}
+
+.message-user {
+    background: #444654; /* Dark gray for user messages */
+    color: white;
+    /* زوايا دائرية محسنة مثل ChatGPT - غير متماثلة */
+    border-radius: 1.125rem 1.125rem 1.125rem 0.25rem;
+    margin-right: auto; /* محاذاة رسائل المستخدم على اليسار */
+    margin-left: 0;
+}
+
+.message-assistant {
+    background: transparent; /* Transparent background for assistant messages */
+    color: #f9fafb; /* Light text color */
+    border: none;
+    /* زوايا دائرية محسنة مثل ChatGPT - غير متماثلة */
+    border-radius: 1.125rem 1.125rem 0.25rem 1.125rem;
+    margin-left: 0;
+    margin-right: 0;
+    max-width: 100%; /* يحد العرض بحد أقصى 100% من الحاوية */
+    width: fit-content; /* يتكيف مع طول النص */
+    word-wrap: break-word; /* يكسر الكلمات الطويلة */
+    overflow-x: hidden; /* يمنع التمدد الأفقي أو التمرير */
+}
+
+/* File Card Styles - New Addition */
+.file-card-bubble {
+    background: transparent !important;
+    border: none !important;
+    padding: 0 !important;
+    margin: 0.5rem 0;
+    width: fit-content;
+    max-width: 280px;
+}
+
+pre, code, pre code {
+    white-space: pre-wrap !important;  /* ✅ يكسر الأسطر الطويلة */
+    word-break: break-word !important; /* ✅ يكسر الكلمات الطويلة */
+    overflow-x: auto !important;       /* ✅ يسمح بالتمرير الأفقي عند الحاجة */
+    max-width: 100% !important;        /* ✅ يمنع التمدد خارج العرض */
+    box-sizing: border-box;
+}
+.file-card {
+    display: flex;
+    align-items: center;
+    padding: 12px 16px;
+    background: #2E2F33;
+    border: 1px solid #4A4B50;
+    border-radius: 16px;
+    width: 100%;
+    max-width: 280px;
+    transition: all 0.2s ease;
+    cursor: pointer;
+}
+
+.file-card:hover {
+    background: #353639;
+    border-color: #5A5B60;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.file-icon-container {
+    width: 40px;
+    height: 40px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-left: 12px;
+    flex-shrink: 0;
+}
+
+.file-icon-container i {
+    font-size: 22px;
+    color: white;
+}
+
+/* File type specific colors */
+.file-icon-js { background: #f7df1e; }
+.file-icon-js i { color: #000; }
+
+.file-icon-html { background: #e34f26; }
+.file-icon-css { background: #1572b6; }
+.file-icon-php { background: #777bb4; }
+.file-icon-python { background: #3776ab; }
+.file-icon-java { background: #ed8b00; }
+.file-icon-cpp { background: #00599c; }
+.file-icon-csharp { background: #239120; }
+.file-icon-ruby { background: #cc342d; }
+.file-icon-json { background: #000000; }
+.file-icon-xml { background: #ff6600; }
+.file-icon-csv { background: #0f7b0f; }
+.file-icon-yaml { background: #cb171e; }
+.file-icon-sql { background: #336791; }
+.file-icon-txt { background: #4a90e2; }
+.file-icon-md { background: #083fa1; }
+.file-icon-log { background: #6f42c1; }
+.file-icon-config { background: #6c757d; }
+.file-icon-default { background: #4a90e2; }
+
+.file-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.file-name {
+    font-size: 14px;
+    font-weight: 500;
+    color: #ffffff;
+    margin: 0 0 2px 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.file-meta {
+    font-size: 12px;
+    color: #9ca3af;
+    margin: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* Streaming Animation Styles */
+.streaming-message {
+    position: relative;
+}
+
+.streaming-cursor {
+    display: inline-block;
+    width: 2px;
+    height: 1.2em;
+    background-color: #10a37f;
+    margin-left: 2px;
+    animation: blink 1s infinite;
+    vertical-align: baseline;
+}
+
+@keyframes blink {
+    0%, 50% { opacity: 1; }
+    51%, 100% { opacity: 0; }
+}
+
+.streaming-indicator {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    color: #9ca3af;
+    font-size: 14px;
+    margin-top: 8px;
+}
+
+.streaming-dots {
+    display: flex;
+    gap: 2px;
+}
+
+.streaming-dot {
+    width: 4px;
+    height: 4px;
+    border-radius: 50%;
+    background-color: #10a37f;
+    animation: streamingPulse 1.4s infinite ease-in-out;
+}
+
+.streaming-dot:nth-child(2) {
+    animation-delay: 0.2s;
+}
+
+.streaming-dot:nth-child(3) {
+    animation-delay: 0.4s;
+}
+
+@keyframes streamingPulse {
+    0%, 60%, 100% {
+        transform: scale(0.8);
+        opacity: 0.5;
+    }
+    30% {
+        transform: scale(1);
+        opacity: 1;
+    }
+}
+
+/* Code Block Styling - ChatGPT Style */
+pre {
+    position: relative;
+    background-color: #0D1117;
+    border-radius: 8px;
+    padding: 0;
+    margin-top: 1rem;
+    margin-bottom: 1rem;
+    /* overflow: hidden; */ /* <-- الخطوة 1: قم بتعليق هذا السطر أو حذفه */
+    border: 1px solid #21262d;
+    display: flex;
+    flex-direction: column;
+    max-width: 100%; /* <-- الخطوة 2: أضف هذا السطر المهم */
+}
+
+/* Code Header - ChatGPT Style */
+.code-header-new {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background-color: #161B22; /* Darker header background */
+    padding: 0.75rem; /* 12px padding */
+    border-bottom: 1px solid #21262d;
+    color: #d1d5db; /* Light gray text */
+    font-size: 0.875rem;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    flex-shrink: 0; /* Prevent header from shrinking */
+    border-radius: 8px 8px 0 0; /* Rounded top corners only */
+}
+
+.language-label {
+    font-weight: 500;
+    color: #d1d5db;
+}
+
+.copy-button-new {
+    background: none;
+    border: none;
+    color: #d1d5db;
+    cursor: pointer;
+    font-size: 0.875rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 0.75rem;
+    border-radius: 6px;
+    transition: all 0.2s ease;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+.copy-button-new:hover {
+    background-color: rgba(255, 255, 255, 0.1);
+    color: #ffffff;
+}
+
+.copy-button-new:active {
+    transform: scale(0.95);
+}
+
+button:focus-visible,
+[role="button"]:focus-visible,
+a:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible,
+label[for]:focus-visible {
+  outline: 2px solid #10a37f;
+  outline-offset: 2px;
+  border-radius: 8px;
+}
+
+/* Code content styling */
+pre code {
+    font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, Courier, monospace;
+    font-size: 0.875rem;
+    line-height: 1.5;
+    color: #e6edf3; /* Brighter code text */
+    display: block;
+    padding: 1rem; /* 16px padding for code content */
+    margin: 0;
+    background: transparent;
+    overflow-x: auto;
+    flex: 1; /* Take remaining space */
+    border-radius: 0 0 8px 8px; /* Rounded bottom corners only */
+}
+
+/* Enhanced syntax highlighting colors for better visibility */
+pre code .hljs-keyword {
+    color: #ff7b72; /* Red for keywords */
+}
+
+pre code .hljs-string {
+    color: #a5d6ff; /* Light blue for strings */
+}
+
+pre code .hljs-number {
+    color: #79c0ff; /* Blue for numbers */
+}
+
+pre code .hljs-comment {
+    color: #8b949e; /* Gray for comments */
+    font-style: italic;
+}
+
+pre code .hljs-function {
+    color: #d2a8ff; /* Purple for functions */
+}
+
+pre code .hljs-variable {
+    color: #ffa657; /* Orange for variables */
+}
+
+pre code .hljs-built_in {
+    color: #79c0ff; /* Blue for built-ins */
+}
+
+pre code .hljs-title {
+    color: #d2a8ff; /* Purple for titles */
+}
+
+/* Legacy code header for backward compatibility */
+.code-header {
+    display: none; /* Hide old header style */
+}
+
+/* Message Actions and Tooltips */
+.message-actions {
+    opacity: 1; /* أو 0 إذا تريدها تظهر فقط عند المرور */
+    transition: opacity 0.2s ease-in-out;
+    position: static; /* يلغي التثبيت في الأعلى */
+    display: flex;
+    gap: 4px;
+    margin-top: 8px; /* أسفل النص */
+    justify-content: flex-start; /* يسار */
+}
+
+/* حشوة افتراضية بسيطة لأسفل – بلا اعتماد على ارتفاع الفوتر */
+#messagesArea{
+  scroll-behavior: smooth;
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+/* عند الشاشات الصغيرة فقط (حيث الفوتر position: sticky) نضيف الحشوة المكافئة لارتفاعه */
+@media (max-width: 768px){
+  #messagesArea{
+    padding-bottom: calc(env(safe-area-inset-bottom) + var(--footer-h, 88px));
+  }
+}
+
+.chat-bubble:hover .message-actions {
+    opacity: 1;
+}
+
+.tooltip {
+    position: relative;
+}
+
+.tooltip:hover::after {
+    content: attr(data-tooltip);
+    position: absolute;
+    bottom: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(0, 0, 0, 0.8);
+    color: white;
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 12px;
+    white-space: nowrap;
+    z-index: 1000;
+    animation: fadeIn 0.2s ease-out;
+}
+
+/* Typing Indicator (from your JS code) */
+.typing-indicator {
+    display: inline-block;
+    animation: pulse 1.5s ease-in-out infinite;
+}
+
+/* Zeus Logo */
+.zeus-logo {
+    background-image: url("/icons/icon-192x192.png");
+    background-size: contain;
+    background-repeat: no-repeat;
+    background-position: center;
+}
+
+/* Sidebar & Transitions */
+.sidebar-transition {
+    transition: transform 0.3s ease-in-out;
+}
+
+/* Animations (from your Tailwind config) */
+@keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+@keyframes slideUp {
+    from { opacity: 0; transform: translateY(20px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 0.4; }
+    50% { opacity: 1; }
+}
+
+/* Mobile Optimizations */
+@media (max-width: 768px) {
+  .sidebar-width { width: 85vw; max-width: 320px; }
+  .welcome-grid { grid-template-columns: 1fr; }
+  .header-title { font-size: 1.125rem; }
+  .header-subtitle { font-size: 0.75rem; }
+  .chat-input { font-size: 16px; }
+  .settings-modal { margin: 1rem; max-width: calc(100vw - 2rem); }
+  .message-actions {
+      opacity: 1;
+      position: relative;
+      top: auto; left: auto;
+      margin-top: 8px;
+      justify-content: flex-end;
+  }
+  /* شريط الإدخال ثابت */
+  .footer-input {
+    position: sticky;
+    bottom: 0;
+    padding-bottom: env(safe-area-inset-bottom);
+    background: #000;
+    z-index: 20;
+  }
+  .file-card { max-width: 250px; }
+} /* 👈 أغلق الموبايل هنا */
+
+/* شاشات ≥ 1024px (لابتوب) */
+@media (min-width: 1024px){
+  :root{ --bubble-max: 65%; }
+  .message-assistant{ max-width: 65%; }
+}
+
+/* شاشات ≥ 1536px (ديسكتوب عريض) */
+@media (min-width: 1536px){
+  :root{ --bubble-max: 55%; }
+  .message-assistant{ max-width: 55%; }
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+    width: 6px;
+}
+
+::-webkit-scrollbar-track {
+    background: rgba(0, 0, 0, 0.1);
+}
+
+::-webkit-scrollbar-thumb {
+    background: rgba(16, 163, 127, 0.5);
+    border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: rgba(16, 163, 127, 0.7);
+}
+
+/* Firefox scrollbar */
+*{
+  scrollbar-width: thin;
+  scrollbar-color: rgba(16,163,127,0.5) rgba(0,0,0,0.1);
+}
+
+/* Additions for Settings Modal Scrolling */
+.settings-scrollable-content {
+    max-height: 400px;
+    overflow-y: auto;
+    padding-right: 15px;
+}
+
+.settings-scrollable-content::-webkit-scrollbar {
+    width: 8px;
+}
+
+.settings-scrollable-content::-webkit-scrollbar-track {
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 4px;
+}
+
+.settings-scrollable-content::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.2);
+    border-radius: 4px;
+}
+
+.settings-scrollable-content::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.4);
+}
+
+/* أنماط إضافية لنافذة إدارة النماذج المخصصة */
+.custom-models-modal {
+    max-height: 90vh;
+    overflow-y: auto;
+}
+
+.custom-model-card {
+    transition: all 0.2s ease-in-out;
+}
+
+.custom-model-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.custom-model-card .form-input {
+    transition: border-color 0.2s ease-in-out;
+}
+
+.custom-model-card .form-input:focus {
+    border-color: #10a37f;
+    box-shadow: 0 0 0 3px rgba(16, 163, 127, 0.1);
+}
+
+/* أنماط للأزرار المخصصة */
+.btn-custom {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.5rem 1rem;
+    border-radius: 0.5rem;
+    font-weight: 500;
+    transition: all 0.2s ease-in-out;
+    cursor: pointer;
+    border: none;
+    text-decoration: none;
+}
+
+.btn-custom:hover {
+    transform: translateY(-1px);
+}
+
+.btn-custom.btn-primary {
+    background-color: #10a37f;
+    color: white;
+}
+
+.btn-custom.btn-primary:hover {
+    background-color: #0d8f6b;
+}
+
+.btn-custom.btn-secondary {
+    background-color: rgba(255, 255, 255, 0.1);
+    color: #f9fafb;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.btn-custom.btn-secondary:hover {
+    background-color: rgba(255, 255, 255, 0.2);
+}
+
+.btn-custom.btn-danger {
+    background-color: #ef4444;
+    color: white;
+}
+
+.btn-custom.btn-danger:hover {
+    background-color: #dc2626;
+}
+
+/* أنماط للحقول المخصصة */
+.form-group {
+    margin-bottom: 1rem;
+}
+
+.form-label {
+    display: block;
+    font-size: 0.875rem;
+    font-weight: 500;
+    margin-bottom: 0.5rem;
+    color: #374151;
+}
+
+.dark .form-label {
+    color: #d1d5db;
+}
+
+.form-input {
+    width: 100%;
+    padding: 0.75rem;
+    border: 1px solid #d1d5db;
+    border-radius: 0.5rem;
+    background-color: rgba(255, 255, 255, 0.8);
+    color: #111827;
+    font-size: 1rem;
+    backdrop-filter: blur(4px);
+}
+
+.dark .form-input {
+    border-color: #4b5563;
+    background-color: rgba(31, 41, 55, 0.8);
+    color: #f9fafb;
+}
+
+.form-input:focus {
+    outline: none;
+    border-color: #10a37f;
+    box-shadow: 0 0 0 3px rgba(16, 163, 127, 0.1);
+}
+
+.form-textarea {
+    resize: vertical;
+    min-height: 80px;
+}
+
+/* أنماط للإشعارات */
+.notification {
+    position: fixed;
+    top: 1rem;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 9999;
+    padding: 0.75rem 1.5rem;
+    border-radius: 0.5rem;
+    color: white;
+    font-weight: 500;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    animation: slideDown 0.3s ease-out;
+}
+
+.notification.success {
+    background-color: #10b981;
+}
+
+.notification.error {
+    background-color: #ef4444;
+}
+
+.notification.info {
+    background-color: #3b82f6;
+}
+
+@keyframes slideDown {
+    from {
+        opacity: 0;
+        transform: translateX(-50%) translateY(-20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(-50%) translateY(0);
+    }
+}
+
+/* أنماط للأيقونات */
+.icon {
+    width: 1rem;
+    height: 1rem;
+    display: inline-block;
+}
+
+.icon-sm {
+    width: 0.875rem;
+    height: 0.875rem;
+}
+
+.icon-lg {
+    width: 1.25rem;
+    height: 1.25rem;
+}
+
+/* أنماط للحالات الفارغة */
+.empty-state {
+    text-align: center;
+    padding: 3rem 1rem;
+    color: #6b7280;
+}
+
+.dark .empty-state {
+    color: #9ca3af;
+}
+
+.empty-state .icon {
+    font-size: 3rem;
+    margin-bottom: 1rem;
+    opacity: 0.5;
+}
+
+.empty-state h3 {
+    font-size: 1.125rem;
+    font-weight: 600;
+    margin-bottom: 0.5rem;
+}
+
+.empty-state p {
+    font-size: 0.875rem;
+    opacity: 0.8;
+}
+
+/* أنماط للبطاقات */
+.card {
+    background: rgba(255, 255, 255, 0.05);
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 0.75rem;
+    padding: 1.5rem;
+    transition: all 0.2s ease-in-out;
+}
+
+.card:hover {
+    background: rgba(255, 255, 255, 0.08);
+    border-color: rgba(255, 255, 255, 0.2);
+    transform: translateY(-2px);
+    box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15);
+}
+
+/* أنماط للتبديل */
+.toggle {
+    position: relative;
+    display: inline-block;
+    width: 44px;
+    height: 24px;
+}
+
+.toggle input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+
+.toggle-slider {
+    position: absolute;
+    cursor: pointer;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: #6b7280;
+    transition: 0.3s;
+    border-radius: 24px;
+}
+
+.toggle-slider:before {
+    position: absolute;
+    content: "";
+    height: 18px;
+    width: 18px;
+    left: 3px;
+    bottom: 3px;
+    background-color: white;
+    transition: 0.3s;
+    border-radius: 50%;
+}
+
+.toggle input:checked + .toggle-slider {
+    background-color: #10a37f;
+}
+
+.toggle input:checked + .toggle-slider:before {
+    transform: translateX(20px);
+}
+
+/* أنماط للتحميل */
+.loading-spinner {
+    display: inline-block;
+    width: 20px;
+    height: 20px;
+    border: 2px solid rgba(255, 255, 255, 0.3);
+    border-radius: 50%;
+    border-top-color: #ffffff;
+    animation: spin 1s ease-in-out infinite;
+}
+
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* أنماط للشارات */
+.badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.25rem 0.75rem;
+    font-size: 0.75rem;
+    font-weight: 500;
+    border-radius: 9999px;
+    background-color: rgba(16, 163, 127, 0.1);
+    color: #10a37f;
+    border: 1px solid rgba(16, 163, 127, 0.2);
+}
+
+.badge.badge-success {
+    background-color: rgba(16, 185, 129, 0.1);
+    color: #10b981;
+    border-color: rgba(16, 185, 129, 0.2);
+}
+
+.badge.badge-error {
+    background-color: rgba(239, 68, 68, 0.1);
+    color: #ef4444;
+    border-color: rgba(239, 68, 68, 0.2);
+}
+
+.badge.badge-warning {
+    background-color: rgba(245, 158, 11, 0.1);
+    color: #f59e0b;
+    border-color: rgba(245, 158, 11, 0.2);
+}
+
+/* أنماط للقوائم المنسدلة */
+.dropdown {
+    position: relative;
+    display: inline-block;
+}
+
+.dropdown-content {
+    display: none;
+    position: absolute;
+    right: 0;
+    background-color: rgba(31, 41, 55, 0.95);
+    min-width: 200px;
+    box-shadow: 0 8px 25px rgba(0, 0, 0, 0.3);
+    z-index: 1000;
+    border-radius: 0.5rem;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    backdrop-filter: blur(10px);
+    overflow: hidden;
+}
+
+/* التحكم في إظهار القائمة يتم الآن بالـ JS عبر إضافة/إزالة .hidden */
+.dropdown:hover .dropdown-content { /* معطّل على اللمس */
+    /* ممنوع الفتح على hover، تجنب الالتصاق على iOS/Android */
+}
+
+.dropdown-item {
+    color: #f9fafb;
+    padding: 0.75rem 1rem;
+    text-decoration: none;
+    display: block;
+    transition: background-color 0.2s ease;
+    font-size: 0.875rem;
+}
+
+.dropdown-item:hover {
+    background-color: rgba(255, 255, 255, 0.1);
+}
+
+.dropdown-item i {
+    margin-left: 0.5rem;
+    width: 16px;
+}
+
+/* أنماط الإدخال المحسنة */
+.input-group {
+    position: relative;
+    margin-bottom: 1rem;
+}
+
+.input-group .form-input {
+    padding-right: 2.5rem;
+}
+
+.input-group .input-icon {
+    position: absolute;
+    right: 0.75rem;
+    top: 50%;
+    transform: translateY(-50%);
+    color: #9ca3af;
+    pointer-events: none;
+}
+
+.input-group .input-action {
+    position: absolute;
+    right: 0.5rem;
+    top: 50%;
+    transform: translateY(-50%);
+    background: none;
+    border: none;
+    color: #9ca3af;
+    cursor: pointer;
+    padding: 0.25rem;
+    border-radius: 0.25rem;
+    transition: color 0.2s ease;
+}
+
+.input-group .input-action:hover {
+    color: #6b7280;
+}
+
+/* أنماط للرسائل التوضيحية */
+.help-text {
+    font-size: 0.75rem;
+    color: #9ca3af;
+    margin-top: 0.25rem;
+}
+
+.error-text {
+    font-size: 0.75rem;
+    color: #ef4444;
+    margin-top: 0.25rem;
+}
+
+.success-text {
+    font-size: 0.75rem;
+    color: #10b981;
+    margin-top: 0.25rem;
+}
+
+/* أنماط للتقدم */
+.progress-bar {
+    width: 100%;
+    height: 4px;
+    background-color: rgba(255, 255, 255, 0.1);
+    border-radius: 2px;
+    overflow: hidden;
+}
+
+.progress-fill {
+    height: 100%;
+    background-color: #10a37f;
+    border-radius: 2px;
+    transition: width 0.3s ease;
+}
+
+/* تحسينات الاستجابة */
+@media (max-width: 640px) {
+    .settings-modal {
+        width: 95vw;
+        max-width: none;
+        margin: 0.5rem;
+    }
+
+    .custom-models-modal {
+        width: 95vw;
+        max-width: none;
+        margin: 0.5rem;
+    }
+
+    .file-card {
+        max-width: calc(100vw - 4rem);
+    }
+
+    .chat-bubble {
+        max-width: 95%;
+    }
+}
+
+/* رندرة أوضح للنص */
+html, body{
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+/* احترام تفضيل تقليل الحركة */
+@media (prefers-reduced-motion: reduce){
+  *, *::before, *::after{
+    animation: none !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Drag and Drop Styles */
+.dragging {
+    opacity: 0.4;
+    cursor: grabbing;
+}
+
+.drop-indicator {
+    height: 2px;
+    background-color: #10a37f; /* zeus-accent */
+    width: 100%;
+    margin: 2px 0;
+    border-radius: 1px;
+    animation: fadeIn 0.2s ease-out;
+    list-style-type: none; /* Ensure it doesn't get a list bullet */
+}
+
+/* ✨ أنماط جديدة لعرض المرفقات مثل ChatGPT */
+
+/* حاوية المرفقات التي ستكون فوق النص */
+.attachments-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem; /* 8px */
+    margin-bottom: 0.75rem; /* 12px */
+    /* محاذاة لليمين في واجهة RTL */
+    justify-content: flex-end; 
+}
+
+/* تصميم الصورة المصغرة المرفقة */
+.attachment-thumbnail {
+    width: 80px;
+    height: 80px;
+    border-radius: 0.75rem; /* 12px */
+    object-fit: cover; /* يضمن أن الصورة تملأ المساحة بدون تشويه */
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    background-color: #2d2d2d; /* لون خلفية احتياطي أثناء التحميل */
+    cursor: pointer;
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.attachment-thumbnail:hover {
+    transform: scale(1.05);
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+}
+
+/* تصميم بطاقة الملفات النصية (للحفاظ على شكلها) */
+.attachment-file-card {
+    max-width: 200px;
+    transform: scale(0.9); /* تصغيرها قليلاً لتناسب التصميم الجديد */
+}
+/* أنماط القائمة المنسدلة للمستخدم */
+.dropdown {
+    position: relative;
+    display: inline-block;
+}
+
+.dropdown-content {
+    position: absolute;
+    right: 0;
+    background-color: #1f2937;
+    min-width: 160px;
+    box-shadow: 0px 8px 16px 0px rgba(0,0,0,0.2);
+    z-index: 1000;
+    border-radius: 0.5rem;
+    border: 1px solid #374151;
+}
+
+.dropdown-content a {
+    color: #f3f4f6;
+    padding: 12px 16px;
+    text-decoration: none;
+    display: block;
+    transition: background-color 0.2s ease;
+}
+
+.dropdown-content a:hover {
+    background-color: #374151;
+}
+
+/* التحكم في إظهار القائمة يتم الآن بالـ JS عبر إضافة/إزالة .hidden */
+.dropdown:hover .dropdown-content { /* معطّل على اللمس */
+    /* ممنوع الفتح على hover، تجنب الالتصاق على iOS/Android */
+}
+
+/* =============================================== */
+/* ✨ أنماط جديدة: القائمة المنسدلة للمستخدم */
+/* =============================================== */
+
+.dropdown {
+    position: relative;
+    display: inline-block;
+}
+
+.dropdown-content {
+    display: none;
+    position: absolute;
+    left: 0; /* محاذاة لليسار لتناسب الواجهة العربية */
+    background-color: #1f2937; /* لون أغمق قليلاً */
+    min-width: 220px;
+    box-shadow: 0 8px 16px rgba(0,0,0,0.3);
+    z-index: 100;
+    border-radius: 0.5rem;
+    border: 1px solid #374151;
+    margin-top: 0.5rem;
+    overflow: hidden;
+    animation: fadeIn 0.2s ease-out;
+}
+
+.dropdown:hover .dropdown-content {
+    display: block;
+}
+
+/* تمرير ناعم داخل قائمة المحادثات في الشريط الجانبي */
+#chatHistory {
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+}
+
+/* احتياطي: لو لديك أي أب يقطع التمرير، أبقه بدون scroll داخلي */
+#sidebar {
+  overflow: hidden;
+}
+
+.dropdown-item {
+    color: #d1d5db;
+    padding: 0.75rem 1rem;
+    text-decoration: none;
+    display: flex; /* استخدام flex لمحاذاة الأيقونة والنص */
+    align-items: center;
+    transition: background-color 0.2s ease;
+    font-size: 0.875rem;
+}
+
+.dropdown-item:hover {
+    background-color: #374151;
+    color: #ffffff;
+}
+
+/* ===== Zeus Blue Theme Enhancements ===== */
+body {
+  background: radial-gradient(1200px 800px at 100% -10%, rgba(45,156,255,.08), transparent 60%),
+              radial-gradient(800px 600px at -10% 100%, rgba(30,127,224,.06), transparent 55%),
+              #0a0f1a;
+  color: #e6f0ff;
+}
+
+.header-title, .header-subtitle {
+  animation: lightning 2.2s linear infinite;
+}
+
+.btn-primary, .bg-zeus-accent {
+  background-color: #2d9cff !important;
+}
+.btn-primary:hover, .hover\:bg-zeus-accent-hover:hover {
+  background-color: #1e7fe0 !important;
+}
+
+/* زر الإرسال الدائري */
+#sendButton {
+  box-shadow: 0 6px 20px rgba(45,156,255,.35);
+}
+
+/* خلفية منطقة الرسائل */
+#messagesContainer, #messagesArea {
+  background:
+    radial-gradient(800px 500px at 80% 0%, rgba(45,156,255,.06), transparent 60%),
+    #0a0f1a;
+}
+
+/* إخفاء زر الإرفاق في PWA (اختياري) */
+@media (display-mode: standalone) {
+  #attachButton, .attach-button {
+    display: none !important;
+  }
+}
+
+/* الحروف >=16px لمنع تكبير iOS */
+#messageInput { font-size: 16px; }
+
+/* ===== خلفيات زيوس ===== */
+:root { --storm-speed: 60s; }
+
+#bgCanvas { transition: filter .3s ease, opacity .3s ease; }
+
+/* الوضع الهادئ: تدرّج سماوي نجمي خفيف */
+.bg-calm {
+  background:
+    radial-gradient(1200px 800px at 80% -10%, rgba(45,156,255,.10), transparent 60%),
+    radial-gradient(900px 600px at 10% 110%, rgba(30,127,224,.10), transparent 60%),
+    radial-gradient(2px 2px at 20% 30%, rgba(255,255,255,.15), transparent 60%),
+    radial-gradient(1px 1px at 60% 70%, rgba(255,255,255,.12), transparent 60%),
+    #000; /* أساس OLED */
+  background-blend-mode: screen, screen, normal, normal, normal;
+}
+
+/* وضع العاصفة: غيوم متحركة + برق متقطع */
+.bg-storm {
+  background:
+    radial-gradient(1200px 800px at 80% -10%, rgba(45,156,255,.12), transparent 60%),
+    radial-gradient(900px 600px at 10% 110%, rgba(30,127,224,.12), transparent 60%),
+    /* طبقتا غيوم */
+    radial-gradient(1200px 800px at 50% 20%, rgba(255,255,255,.045), transparent 60%),
+    radial-gradient(1200px 800px at 60% 80%, rgba(255,255,255,.035), transparent 60%),
+    #000;
+  animation: stormClouds var(--storm-speed) linear infinite;
+  background-size: auto, auto, 160% 160%, 180% 180%, auto;
+}
+
+/* وميض البرق: يشتغل عبر إضافة .flash مؤقتاً */
+.bg-storm.flash::after {
+  content: "";
+  position: absolute; inset: 0;
+  background:
+    radial-gradient(400px 300px at 70% 20%, rgba(255,255,255,.35), transparent 70%),
+    radial-gradient(300px 250px at 30% 60%, rgba(255,255,255,.25), transparent 70%);
+  mix-blend-mode: screen;
+  animation: lightningFlash 1.8s ease-out 1;
+  pointer-events: none;
+}
+
+/* حركة الغيوم */
+@keyframes stormClouds {
+  0%   { background-position: 0 0, 0 0, 0 0, 0 0, 0 0; }
+  100% { background-position: 0 0, 0 0, -20% -10%, 25% 15%, 0 0; }
+}
+
+/* فلاش البرق */
+@keyframes lightningFlash {
+  0%, 100% { opacity: 0; filter: brightness(1); }
+  5%       { opacity: .9; filter: brightness(1.7); }
+  12%      { opacity: .2; filter: brightness(1); }
+  18%      { opacity: .8; filter: brightness(1.5); }
+  28%      { opacity: 0;  filter: brightness(1); }
+}
+
+/* احترام تفضيل تقليل الحركة */
+@media (prefers-reduced-motion: reduce) {
+  .bg-storm { animation: none; }
+}
+
+/* ======== قائمة حساب المستخدم (أفاتار) ======== */
+.user-menu-trigger { background: transparent; }
+.user-menu-panel {
+  min-width: 16rem;
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 0.75rem;
+  background: rgba(10,10,10,0.92);
+  backdrop-filter: blur(8px);
+}
+.user-menu-panel .menu-item {
+  display: flex; align-items: center; gap: .5rem;
+  font-size: .925rem; color: #e5e7eb;
+}
+.user-menu-panel .menu-item i { width: 1rem; text-align: center; }
+
+/* ===== تبويبات نافذة الإعدادات (أسلوب GPT) ===== */
+.settings-tab {
+  display: block;
+  width: 100%;
+  text-align: right;
+  padding: .6rem .8rem;
+  border-radius: .6rem;
+  color: #e5e7eb;
+  transition: background .2s ease;
+}
+.settings-tab:hover,
+.settings-tab.active {
+  background: rgba(255,255,255,.06);
+}
+.settings-panel.hidden { display: none; }
+
+/* تحسين شكل المربعات داخل اللوحة */
+.settings-section {
+  background: rgba(255,255,255,.03);
+  border: 1px solid rgba(255,255,255,.06);
+  border-radius: .8rem;
+  padding: 1rem;
+}
+
+/* ===== نظام الثيمات الثلاثة ===== */
+/* أزرق داكن (افتراضي تقريبًا بفضل الأنماط الحالية) */
+body.theme-blue { }
+
+/* أسود كامل (OLED) */
+body.theme-black {
+  background: #000 !important;
+}
+body.theme-black header {
+  background: #0a0f1a !important;
+  border-color: #111827 !important;
+}
+body.theme-black .footer-input {
+  background: #000 !important;
+  border-top: 1px solid #111827 !important;
+}
+
+/* نهاري أبيض */
+body.theme-light { background: #f7f7f8 !important; }
+body.theme-light header {
+  background: #f9fafb !important;
+  border-color: #e5e7eb !important;
+}
+body.theme-light .footer-input {
+  background: #fff !important;
+  border-top: 1px solid #e5e7eb !important;
+}
+body.theme-light .message-assistant { color: #111827 !important; }
+body.theme-light .message-user {
+  background: #e5e7eb !important;
+  color: #111827 !important;
+}
+body.theme-light .glass-effect {
+  background: rgba(255,255,255,0.65) !important;
+  border-color: rgba(0,0,0,0.08) !important;
+}
+
+#user-info-container { position: relative; z-index: 60; }
+
+.user-menu-panel {
+  position: absolute;
+  top: calc(100% + .5rem);
+  inset-inline-start: 0 !important; /* يسار في الـ LTR ويمين في RTL تلقائي */
+  inset-inline-end: auto !important;
+  z-index: 1000; /* فوق الرسائل */
+}
+
+/* ====== Theme Variants (FIXED) ====== */
+/* ضع هذا القسم في أسفل style.css ليغلب كل ما قبله */
+
+/* انتقالات لطيفة */
+body { transition: background-color .2s ease, color .2s ease; }
+#app, #messagesContainer, #messagesArea { transition: background-color .2s ease, color .2s ease; }
+
+/* ========== BLUE (أزرق داكن) ========== */
+body.theme-blue {
+  background-color: #0b1220;
+  color: #e5e7eb;
+}
+body.theme-blue #messagesContainer,
+body.theme-blue #messagesArea {
+  background-color: #0b1220;
+}
+/* المستخدم فقط */
+body.theme-blue .message-user {
+  background-color: rgba(255,255,255,.06) !important;
+  color: #e5e7eb !important;
+}
+/* المساعد يبقى شفافاً كما عرّفته بالأعلى */
+body.theme-blue .message-assistant {
+  background: transparent !important;
+  color: #e6f0ff !important; /* نص مريح على الأزرق الداكن */
+  border: none !important;
+}
+
+/* ========== BLACK (أسود كامل) ========== */
+body.theme-black {
+  background-color: #000000;
+  color: #e5e7eb;
+}
+body.theme-black #messagesContainer,
+body.theme-black #messagesArea {
+  background-color: #000000;
+}
+body.theme-black .message-user {
+  background-color: #444654 !important; /* نفس الرمادي */
+  color: #f3f4f6 !important;
+}
+body.theme-black .message-assistant {
+  background: transparent !important;
+  color: #f3f4f6 !important;
+  border: none !important;
+}
+
+/* ========== LIGHT (نهاري أبيض) ========== */
+body.theme-light {
+  background-color: #ffffff;
+  color: #111827; /* Slate-900 */
+}
+body.theme-light #messagesContainer,
+body.theme-light #messagesArea {
+  background-color: #ffffff;
+}
+/* المستخدم على الأبيض: فقاعة رمادية فاتحة */
+body.theme-light .message-user {
+  background-color: #e5e7eb !important;
+  color: #111827 !important;
+}
+body.theme-light .message-assistant {
+  background: transparent !important; /* يظل شفافاً */
+  color: #111827 !important;
+  border: none !important;
+}
+
+/* إدخال الرسائل/الفوتر ليتناغم مع كل ثيم */
+.footer-input {
+  transition: background-color .2s ease, color .2s ease, border-color .2s ease;
+}
+body.theme-blue .footer-input { background-color: rgba(17,24,39,.6); color:#e5e7eb; border-color: #1f2937; }
+body.theme-black .footer-input { background-color: rgba(17,24,39,.7); color:#e5e7eb; border-color: #111827; }
+body.theme-light .footer-input { background-color: #ffffff; color:#111827; border-color: #e5e7eb; }
+
+/* زر عرض/إخفاء المصادر */
+.sources-toggle { margin-top: 0.25rem; }
+
+/* قائمة المصادر (مخفية افتراضياً) */
+.sources-list.hidden { display: none; }
+
+/* أنماط المنزلق المخصص */
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 6px;
+  background: rgb(209 213 219);
+  border-radius: 3px;
+  outline: none;
+  transition: background 0.2s;
+}
+
+.dark input[type="range"] {
+  background: rgb(75 85 99);
+}
+
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 20px;
+  width: 20px;
+  border-radius: 50%;
+  background: rgb(45 156 255);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+input[type="range"]::-webkit-slider-thumb:hover {
+  background: rgb(30 127 224);
+  transform: scale(1.1);
+}
+
+input[type="range"]::-moz-range-thumb {
+  height: 20px;
+  width: 20px;
+  border-radius: 50%;
+  background: rgb(45 156 255);
+  cursor: pointer;
+  border: none;
+  transition: all 0.2s;
+}
+
+input[type="range"]::-moz-range-thumb:hover {
+  background: rgb(30 127 224);
+  transform: scale(1.1);
+}
+
+/* تحسين مظهر الـ settings sections */
+.settings-section {
+  padding: 1rem 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.settings-section:last-child {
+  border-bottom: none;
+}
+
+/* تحسين مظهر التبديل */
+.peer:checked ~ div {
+  background-color: rgb(45 156 255);
+}
+
+.peer:focus ~ div {
+  box-shadow: 0 0 0 3px rgba(45, 156, 255, 0.1);
+}

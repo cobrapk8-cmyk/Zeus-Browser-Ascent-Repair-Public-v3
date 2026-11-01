@@ -1,0 +1,26 @@
+{
+  "ascent_version": "1.0.25",
+  "evidence_source": "REA decompile of com.rlmobile.ascent (analysis/ascent/rea/* in cobrapk8ggggggg-tech/Andriod branch rea/ascent-decompile-20261101)",
+  "features": [
+    {"id": "probe", "name": "استكشاف عناصر الصور بدل لقطة الشاشة", "ascent": "image_probe.js: rect لكل عنصر بمفتاح مستقر من مسار الملف، MIN 64x24، استبعاد الإعلانات، إيقاظ lazy ضمن 8 شاشات 4/تمريرة", "zeus_test": "bridge", "zeus_files": ["ZEUSNext/Resources/comic-images.js"], "zeus_status": "yes"},
+    {"id": "fetch", "name": "جلب الأصل بأبعاده الحقيقية مع سقوط آمن إلى Canvas", "ascent": "native fetch بالـ URL + raster() مجزأ للblob/data/canvas بحد RASTER_KEPT=6", "zeus_test": "bridge", "zeus_files": ["ZEUSNext/ComicTranslation/ComicTranslation.swift"], "zeus_status": "yes"},
+    {"id": "region", "name": "نوافذ طويلة متداخلة بسياق عند حدود الصور", "ascent": "شرائح بحجم عرض الشريط وسياق حتى 256px", "zeus_test": "decoder", "zeus_files": ["ZEUSNext/ComicTranslation/ComicGeometry.swift"], "zeus_status": "yes"},
+    {"id": "ocr_fast", "name": "OCR سريع مدمج", "ascent": "ML Kit: ocr,ocr_chinese,ocr_japanese,ocr_korean", "zeus_test": "simulator", "zeus_files": ["ZEUSNext/ComicTranslation/ComicOCR.swift"], "zeus_status": "yes-simulator-vision"},
+    {"id": "ocr_paddle", "name": "PaddleOCR ONNX لغات إضافية بكتالوج ثابت وبصمات نماذج", "ascent": "PP-OCRv5/v6 من HuggingFace بSHA مثبت + كتالوج موقّع ECDSA", "zeus_test": "simulator", "zeus_files": ["ZEUSNext/ComicTranslation/ComicPaddle.swift", "ZEUSNext/ComicTranslation/ComicModelStore.swift"], "zeus_status": "yes-static-catalog"},
+    {"id": "balloon", "name": "استرجاع داخل الفقاعة المغلقة", "ascent": "تنظيف موضعي + خلفية مستنتجة", "zeus_test": "unit", "zeus_files": ["ZEUSNext/ComicTranslation/ComicBalloons.swift"], "zeus_status": "yes-bounded"},
+    {"id": "color", "name": "تلوين الحروف حسب خلفية الفقاعة", "ascent": "لون تلقائي مقابل الخلفية", "zeus_test": "unit", "zeus_files": ["ZEUSNext/ComicTranslation/ComicPixels.swift"], "zeus_status": "improved-interior-wcag"},
+    {"id": "font", "name": "نظام خطوط: استيراد + حجم تلقائي داخل الفقاعة", "ascent": "استيراد خطوط + ملاءمة تلقائية", "zeus_test": "unit", "zeus_files": ["ZEUSNext/ComicTranslation/ComicPixels.swift"], "zeus_status": "improved-arabic-fallback"},
+    {"id": "rtl", "name": "تشكيل العربية وBidi والنص العمودي", "ascent": "CoreText مشابه", "zeus_test": "unit", "zeus_files": ["ZEUSNext/ComicTranslation/ComicBidi.swift"], "zeus_status": "yes"},
+    {"id": "swap", "name": "تبديل مصدر الصورة (وضع البناء) مع أصل قابل للاسترجاع", "ascent": "تبديل src كلي", "zeus_test": "bridge", "zeus_files": ["ZEUSNext/Resources/comic-images.js"], "zeus_status": "yes"},
+    {"id": "resume", "name": "إيقاف/متابعة/أصل + مراجعة الجيل ضد التنقل", "ascent": "حالة لكل صفحة", "zeus_test": "bridge", "zeus_files": ["ZEUSNext/ComicTranslation/ComicTranslation.swift"], "zeus_status": "yes"},
+    {"id": "memory", "name": "طبقات حفظ OCR/ترجمة/رسم مع حدود وحذف", "ascent": "ذاكرة ترجمة", "zeus_test": "unit", "zeus_files": ["ZEUSNext/ComicTranslation/ComicMemory.swift"], "zeus_status": "yes"},
+    {"id": "engines_free", "name": "محركات مجانية بلا مفتاح", "ascent": "Google translate-pa + DeepL oneshot", "zeus_test": "live", "zeus_files": ["ZEUSNext/ComicTranslation/ComicWebEngines.swift"], "zeus_status": "yes-google-edge-mymemory"},
+    {"id": "engines_byok", "name": "محركات بمفتاح المستخدم", "ascent": "OpenAI/Anthropic/Gemini BYOK", "zeus_test": "none", "zeus_files": ["ZEUSNext/ComicTranslation/ComicTextTranslator.swift"], "zeus_status": "yes-user-key"},
+    {"id": "local_llm", "name": "ترجمة محلية llama.cpp", "ascent": "libascent_llama GGUF", "zeus_test": "none", "zeus_files": ["ZEUSNext/ComicTranslation/ComicLocalTranslator.swift"], "zeus_status": "yes-import"},
+    {"id": "security", "name": "عزل عالم JS ومنع SSRF من الصفحة", "ascent": "إصلاح data-rm-original الموثق", "zeus_test": "unit", "zeus_files": ["ZEUSNext/ComicTranslation/ComicTranslation.swift"], "zeus_status": "yes"},
+    {"id": "vertical", "name": "نص عمودي ياباني بترتيب أعمدة", "ascent": "مدعوم", "zeus_test": "unit", "zeus_files": ["ZEUSNext/ComicTranslation/ComicGeometry.swift"], "zeus_status": "yes"},
+    {"id": "perspective", "name": "نص مائل/منظور وSFX مركبة", "ascent": "معالجات متقدمة", "zeus_test": "none", "zeus_files": [], "zeus_status": "missing"},
+    {"id": "process_isolation", "name": "فك الصور خارج عملية المتصفح", "ascent": "DecodeService + SharedMemory صفر-نسخ", "zeus_test": "decoder", "zeus_files": ["Native/ComicRuntime/ComicRegionDecoder.cpp"], "zeus_status": "partial-inproc"},
+    {"id": "reader", "name": "قارئ مانجا مستقل (مكتبة/مصادر/تنزيل)", "ascent": "fork Mihon كامل", "zeus_test": "none", "zeus_files": [], "zeus_status": "out-of-scope"}
+  ]
+}

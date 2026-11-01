@@ -1,0 +1,5 @@
+module ZeusComicRuntime {
+    header "ZeusComicRuntime.h"
+    link "zeuscomic"
+    export *
+}

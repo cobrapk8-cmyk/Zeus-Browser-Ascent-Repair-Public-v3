@@ -1,0 +1,365 @@
+import Foundation
+import SwiftUI
+import WebKit
+
+enum SearchProvider: String, Codable, CaseIterable, Identifiable {
+    case google = "Google", duckDuckGo = "DuckDuckGo", bing = "Bing"
+    var id: String { rawValue }
+    var symbol: String { switch self { case .google: return "globe"; case .duckDuckGo: return "target"; case .bing: return "magnifyingglass.circle" } }
+    var baseURL: String {
+        switch self {
+        case .google: return "https://www.google.com/search"
+        case .duckDuckGo: return "https://duckduckgo.com/"
+        case .bing: return "https://www.bing.com/search"
+        }
+    }
+}
+
+enum ProfileKind: String, Codable { case standard, ephemeral }
+
+struct BrowserProfile: Codable, Identifiable, Equatable {
+    var id = UUID()
+    var name: String
+    var symbol = "person.crop.circle.fill"
+    var accent = "cyan"
+    var kind: ProfileKind = .standard
+    var locked = false
+    var isPrivate: Bool { kind == .ephemeral }
+    var passwordProtected: Bool?
+    var requiresPassword: Bool { passwordProtected == true || AccountVault.exists(id) }
+    var legacyWebsiteStore: Bool?
+    var account: AccountOptions?
+    var role: AccountRole { account?.role ?? .standard }
+    var isAdmin: Bool { role == .administrator }
+    var color: Color { .white }
+
+}
+
+struct Bookmark: Codable, Identifiable, Equatable {
+    var id = UUID()
+    var title: String
+    var url: String
+    var created = Date()
+}
+
+struct Visit: Codable, Identifiable {
+    var id = UUID()
+    var title: String
+    var url: String
+    var date = Date()
+}
+
+struct BrowserScript: Codable, Identifiable {
+    var id = UUID()
+    var name: String
+    var domain: String
+    var code: String
+    var isActive = true
+}
+
+struct BrowserSettings: Codable {
+    var searchProvider: SearchProvider = .google
+    var shieldsEnabled = true
+    var cosmeticFiltering = true
+    var desktopMode = false
+    var textScale: Double = 1
+    var siteExceptions: [String] = []
+    var popupExceptions: [String] = []
+    var developerTools = false
+    var chromeLayout: ChromeLayout?
+    var reading: ReadingPreferences?
+    var advanced: AdvancedSettings?
+    var backupFiltersEnabled: Bool?
+    var theme: BrowserTheme?
+    var translation: TranslationPreferences?
+    var comicTranslation: ComicPreferences?
+    var aiProviders: [AIProviderConfiguration]?
+    var chromeWorkspace: ChromeWorkspace?
+}
+
+struct SavedTab: Codable, Identifiable {
+    var id = UUID()
+    var title = "بداية جديدة"
+    var url = "zeus://home"
+    var pinned: Bool?
+    var groupID: UUID?
+}
+
+struct ProfileData: Codable {
+    var bookmarks: [Bookmark] = []
+    var history: [Visit] = []
+    var scripts: [BrowserScript] = []
+    var tabs: [SavedTab] = [SavedTab()]
+    var selectedTabID: UUID?
+    var settings = BrowserSettings()
+    var searches: [String]?
+    var forms: [SavedForm]?
+    var tabGroups: [TabGroup]?
+    var tabScrollOffsets: [String: Double]?
+}
+
+enum BrowserURL {
+    static func resolve(_ text: String, provider: SearchProvider) -> URL? {
+        let input = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !input.isEmpty else { return nil }
+        if input == "zeus://home" { return URL(string: input) }
+        if let url = URL(string: input), let scheme = url.scheme?.lowercased(), ["https", "http"].contains(scheme), url.host != nil {
+            return url
+        }
+        if !input.contains(where: { $0.isWhitespace }), input.contains("."), !input.contains("://"),
+           let url = URL(string: "https://" + input), url.host != nil { return url }
+        var components = URLComponents(string: provider.baseURL)
+        components?.queryItems = [URLQueryItem(name: "q", value: input)]
+        return components?.url
+    }
+
+    static func isSearch(_ text: String) -> Bool {
+        let input = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return !input.contains("://") && !(input.contains(".") && !input.contains(where: { $0.isWhitespace }))
+    }
+    static func resolve(_ text: String, settings: BrowserSettings) -> URL? {
+        if isSearch(text), let options = settings.advanced, let engine = options.customSearchEngines.first(where: { $0.id == options.selectedSearchEngineID }), let query = text.addingPercentEncoding(withAllowedCharacters: .alphanumerics), let url = URL(string: engine.template.replacingOccurrences(of: "{query}", with: query)), isWeb(url) { return url }
+        return resolve(text, provider: settings.searchProvider)
+    }
+    static func hostMatches(_ host: String, domain: String) -> Bool {
+        let host = host.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "."))
+        let domain = domain.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "."))
+        return !domain.isEmpty && (host == domain || host.hasSuffix("." + domain))
+    }
+
+    static func isWeb(_ url: URL) -> Bool { ["https", "http"].contains(url.scheme?.lowercased() ?? "") && url.host != nil }
+    static func displayHost(_ text: String) -> String { URL(string: text)?.host ?? text }
+}
+
+enum BrowserDisk {
+    static var applicationRoot: URL {
+        (FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory)
+            .appendingPathComponent("ZEUSNext", isDirectory: true)
+    }
+    static var downloadsRoot: URL {
+        (FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory)
+            .appendingPathComponent("ZEUS Downloads", isDirectory: true)
+    }
+    static func ensure(_ url: URL) throws {
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true,
+                                               attributes: [.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication])
+    }
+    static func write<T: Encodable>(_ value: T, to url: URL) throws {
+        try ensure(url.deletingLastPathComponent())
+        let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
+        try encoder.encode(value).write(to: url, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+    }
+    static func read<T: Decodable>(_ type: T.Type, from url: URL) -> T? {
+        guard let data = try? Data(contentsOf: url) else { return nil }
+        return try? JSONDecoder().decode(type, from: data)
+    }
+    static func clearLegacyImageCache() async throws -> Int64 {
+        try await Task.detached {
+            guard let root = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first else { return Int64(0) }
+            let children = try FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)
+            var reclaimed: Int64 = 0
+            for child in children where child.lastPathComponent.hasPrefix("com.onevcat.Kingfisher.ImageCache") { reclaimed += size(at: child); try FileManager.default.removeItem(at: child) }
+            return reclaimed
+        }.value
+    }
+    static func size(at url: URL) -> Int64 {
+        guard let enumerator = FileManager.default.enumerator(at: url, includingPropertiesForKeys: [.fileSizeKey, .isRegularFileKey]) else { return 0 }
+        return enumerator.reduce(Int64(0)) { total, item in
+            guard let item = item as? URL, let info = try? item.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey]), info.isRegularFile == true else { return total }
+            return total + Int64(info.fileSize ?? 0)
+        }
+    }
+}
+
+@MainActor final class ProfileStore: ObservableObject {
+    @Published private(set) var profiles: [BrowserProfile]
+    @Published private(set) var activeID: UUID
+    @Published var errorMessage: String?
+    let root: URL
+    let downloadsRoot: URL
+    let loadedExistingIndex: Bool
+    private var stores: [UUID: WKWebsiteDataStore] = [:]
+    private var pendingStoreRemovals: Set<UUID> = []
+    private struct Index: Codable { var profiles: [BrowserProfile]; var activeID: UUID }
+
+    init(root: URL = BrowserDisk.applicationRoot, downloadsRoot: URL = BrowserDisk.downloadsRoot) {
+        self.root = root; self.downloadsRoot = downloadsRoot
+        loadedExistingIndex = FileManager.default.fileExists(atPath: root.appendingPathComponent("profiles.json").path)
+        pendingStoreRemovals = Set(BrowserDisk.read([UUID].self, from: root.appendingPathComponent("removed-web-stores.json")) ?? [])
+        if let index = BrowserDisk.read(Index.self, from: root.appendingPathComponent("profiles.json")), !index.profiles.isEmpty {
+            profiles = index.profiles
+            activeID = index.profiles.contains(where: { $0.id == index.activeID }) ? index.activeID : index.profiles[0].id
+            if !profiles.contains(where: { $0.isAdmin }) {
+                if let index = profiles.firstIndex(where: { !$0.isPrivate }) { profiles[index].account = AccountOptions(role: .administrator) }
+                else { var admin = BrowserProfile(name: "الرئيسي"); admin.account = AccountOptions(role: .administrator); profiles.insert(admin, at: 0) }
+                persistIndex()
+            }
+        } else {
+            var initial = BrowserProfile(name: "الرئيسي")
+            initial.account = AccountOptions(role: .administrator)
+            initial.legacyWebsiteStore = UserDefaults.standard.data(forKey: "browser_saved_tabs_list") != nil || UserDefaults.standard.data(forKey: "saved_websites") != nil
+            profiles = [initial]; activeID = initial.id
+            persistIndex()
+            migrateLegacy(into: initial)
+        }
+        ensureSpecialAccounts()
+        for profile in profiles where profile.isPrivate { AISecretVault.removeAll(profile: profile.id); try? FileManager.default.removeItem(at: folder(for: profile)) }
+        Task { [weak self] in await self?.retryRemovedWebsiteStores() }
+    }
+    private func ensureSpecialAccounts() {
+        for role in [AccountRole.guest, .kiosk] where !profiles.contains(where: { $0.role == role }) {
+            var special = BrowserProfile(name: role.title, symbol: role == .guest ? "person.crop.circle.badge.questionmark" : "display", kind: role == .guest ? .ephemeral : .standard)
+            special.account = AccountOptions(role: role, enabled: false, allowDownloads: role != .kiosk, allowScripts: false, allowDeveloperTools: false, allowSettings: role != .kiosk)
+            profiles.append(special)
+        }
+        persistIndex()
+    }
+    func moveStandardAccounts(from indices: IndexSet, to destination: Int) {
+        guard active.isAdmin else { return }
+        var users = profiles.filter { $0.role == .standard }; users.move(fromOffsets: indices, toOffset: destination)
+        profiles = profiles.filter { $0.isAdmin } + users + profiles.filter { [.guest, .kiosk].contains($0.role) }; persistIndex()
+    }
+
+    var active: BrowserProfile { profiles.first(where: { $0.id == activeID }) ?? profiles[0] }
+    func profile(_ id: UUID) -> BrowserProfile? { profiles.first(where: { $0.id == id }) }
+    func folder(for profile: BrowserProfile) -> URL {
+        if profile.isPrivate { return FileManager.default.temporaryDirectory.appendingPathComponent("ZEUS-Private-" + profile.id.uuidString) }
+        return root.appendingPathComponent("Profiles").appendingPathComponent(profile.id.uuidString)
+    }
+    func downloads(for profile: BrowserProfile) -> URL {
+        profile.isPrivate ? folder(for: profile).appendingPathComponent("Downloads") : downloadsRoot.appendingPathComponent(profile.id.uuidString)
+    }
+    func websiteDataStore(for profile: BrowserProfile) -> WKWebsiteDataStore {
+        if let store = stores[profile.id] { return store }
+        let store = profile.isPrivate ? WKWebsiteDataStore.nonPersistent() : profile.legacyWebsiteStore == true ? WKWebsiteDataStore.default() : WKWebsiteDataStore(forIdentifier: profile.id)
+        stores[profile.id] = store
+        return store
+    }
+    func load(_ profile: BrowserProfile) -> ProfileData {
+        guard !profile.isPrivate else { return guestTemplate(profile) }
+        return BrowserDisk.read(ProfileData.self, from: folder(for: profile).appendingPathComponent("browser.json")) ?? ProfileData()
+    }
+    func save(_ data: ProfileData, for profile: BrowserProfile) {
+        guard !profile.isPrivate else { return }
+        do {
+            let file = folder(for: profile).appendingPathComponent("browser.json")
+            let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
+            let bytes = try encoder.encode(data)
+            guard (try? Data(contentsOf: file)) != bytes else { return }
+            try BrowserDisk.ensure(file.deletingLastPathComponent())
+            try bytes.write(to: file, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+            NotificationCenter.default.post(name: .zeusBrowserDataChanged, object: root)
+        }
+        catch { errorMessage = "تعذر حفظ بيانات المساحة: \(error.localizedDescription)" }
+    }
+    @discardableResult func add(name: String, accent: String, isPrivate: Bool) -> BrowserProfile {
+        guard active.isAdmin else { errorMessage = AccountError.permission.localizedDescription; return active }
+        let name = String(name.trimmingCharacters(in: .whitespacesAndNewlines).prefix(48))
+        let profile = BrowserProfile(name: name.isEmpty ? "مساحة جديدة" : name, symbol: isPrivate ? "theatermasks.fill" : "person.crop.circle.fill", accent: accent, kind: isPrivate ? .ephemeral : .standard)
+        profiles.append(profile); persistIndex(); return profile
+    }
+    func select(_ id: UUID) { guard profile(id) != nil else { return }; activeID = id; persistIndex() }
+    func update(_ profile: BrowserProfile) {
+        guard let index = profiles.firstIndex(where: { $0.id == profile.id }) else { return }
+        profiles[index] = profile; persistIndex()
+    }
+    func clearEphemeral(_ profile: BrowserProfile) async {
+        guard profile.isPrivate else { return }
+        AISecretVault.removeAll(profile: profile.id)
+        let store = websiteDataStore(for: profile)
+        await store.removeData(ofTypes: WKWebsiteDataStore.allWebsiteDataTypes(), modifiedSince: .distantPast)
+        stores.removeValue(forKey: profile.id)
+        try? FileManager.default.removeItem(at: folder(for: profile))
+    }
+    func delete(_ profile: BrowserProfile) async throws {
+        guard active.isAdmin, !profile.isAdmin, profiles.count > 1 else { throw AccountError.permission }
+        try await ComicMemory.shared.clear(profile: profile.id, deleting: true)
+        try await clearAndReleaseWebsiteStore(profile)
+        for path in [folder(for: profile), downloads(for: profile), configurationFolder(profile)] where FileManager.default.fileExists(atPath: path.path) { try FileManager.default.removeItem(at: path) }
+        AccountVault.remove(profile.id); FormVault.remove(profileID: profile.id); AISecretVault.removeAll(profile: profile.id)
+        profiles.removeAll { $0.id == profile.id }
+        if activeID == profile.id { activeID = profiles[0].id }
+        persistIndex()
+    }
+    func resetAll() async throws {
+        guard active.isAdmin else { throw AccountError.permission }
+        for profile in profiles { try await ComicMemory.shared.clear(profile: profile.id, deleting: true) }
+        try await ComicMemory.shared.clearAll()
+        await ComicLocalTranslator.shared.unload()
+        let old = profiles
+        for profile in old {
+            try await clearAndReleaseWebsiteStore(profile)
+            AccountVault.remove(profile.id); FormVault.remove(profileID: profile.id); AISecretVault.removeAll(profile: profile.id)
+            for path in [folder(for: profile), downloads(for: profile), configurationFolder(profile)] where FileManager.default.fileExists(atPath: path.path) { try FileManager.default.removeItem(at: path) }
+        }
+        stores.removeAll()
+        var initial = BrowserProfile(name: "الرئيسي"); initial.account = AccountOptions(role: .administrator)
+        profiles = [initial]; activeID = initial.id; ensureSpecialAccounts()
+        let filters = root.appendingPathComponent("Filters"); if FileManager.default.fileExists(atPath: filters.path) { try FileManager.default.removeItem(at: filters) }
+    }
+    private func savePendingRemovals() throws { try BrowserDisk.write(Array(pendingStoreRemovals), to: root.appendingPathComponent("removed-web-stores.json")) }
+    private func removeWebsiteStoreMetadata(_ id: UUID) async throws {
+        try await withCheckedThrowingContinuation { (c: CheckedContinuation<Void, Error>) in
+            WKWebsiteDataStore.remove(forIdentifier: id) { if let error = $0 { c.resume(throwing: error) } else { c.resume() } }
+        }
+    }
+    private func clearAndReleaseWebsiteStore(_ profile: BrowserProfile) async throws {
+        // Clear website data immediately. WebKit can retain an empty store in its
+        // network process after its last view is released; retry its directory
+        // metadata at the next launch rather than leave a deleted account visible.
+        await websiteDataStore(for: profile).removeData(ofTypes: WKWebsiteDataStore.allWebsiteDataTypes(), modifiedSince: .distantPast)
+        stores.removeValue(forKey: profile.id)
+        guard !profile.isPrivate, profile.legacyWebsiteStore != true else { return }
+        pendingStoreRemovals.insert(profile.id); try savePendingRemovals()
+        do { try await removeWebsiteStoreMetadata(profile.id); pendingStoreRemovals.remove(profile.id); try savePendingRemovals() }
+        catch {
+            let problem = error as NSError
+            if problem.domain != "WKWebSiteDataStore" || problem.code != 1 { throw error }
+        }
+    }
+    private func retryRemovedWebsiteStores() async {
+        for id in pendingStoreRemovals where !profiles.contains(where: { $0.id == id }) {
+            do { try await removeWebsiteStoreMetadata(id); pendingStoreRemovals.remove(id); try savePendingRemovals() }
+            catch { /* The durable queue remains for the next launch. */ }
+        }
+    }
+    /// Fresh-install restore commits the index last. An interrupted write never
+    /// replaces an existing profile or changes the previous visible index.
+    func installCloudBrowser(_ payload: CloudBrowserPayload) throws {
+        let payload = try payload.validated()
+        guard !loadedExistingIndex else { throw CloudAccountError.conflict }
+        let oldIDs = Set(profiles.map(\.id))
+        guard payload.profiles.allSatisfy({ !oldIDs.contains($0.profile.id) }) else { throw CloudAccountError.conflict }
+        for entry in payload.profiles {
+            try BrowserDisk.write(entry.data, to: folder(for: entry.profile).appendingPathComponent("browser.json"))
+            if let avatar = entry.avatar {
+                let folder = configurationFolder(entry.profile); try BrowserDisk.ensure(folder)
+                try avatar.write(to: folder.appendingPathComponent("avatar.jpg"), options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+            }
+        }
+        try BrowserDisk.write(Index(profiles: payload.profiles.map(\.profile), activeID: payload.activeID), to: root.appendingPathComponent("profiles.json"))
+        profiles = payload.profiles.map(\.profile); activeID = payload.activeID
+        ensureSpecialAccounts()
+    }
+
+    private func persistIndex() {
+        do {
+            try BrowserDisk.write(Index(profiles: profiles, activeID: activeID), to: root.appendingPathComponent("profiles.json"))
+            NotificationCenter.default.post(name: .zeusBrowserDataChanged, object: root)
+        }
+        catch { errorMessage = "تعذر حفظ البروفايلات: \(error.localizedDescription)" }
+    }
+    private func migrateLegacy(into profile: BrowserProfile) {
+        var data = ProfileData()
+        let defaults = UserDefaults.standard
+        struct LegacyWebsite: Decodable { var id: UUID; var name: String; var url: String; var dateAdded: Date }
+        if let raw = defaults.data(forKey: "saved_websites"), let sites = try? JSONDecoder().decode([LegacyWebsite].self, from: raw) { data.bookmarks = sites.map { Bookmark(id: $0.id, title: $0.name, url: $0.url, created: $0.dateAdded) } }
+        if let raw = defaults.data(forKey: "browser_history_data"), let visits = try? JSONDecoder().decode([Visit].self, from: raw) { data.history = visits }
+        if let raw = defaults.data(forKey: "browser_saved_tabs_list"), let tabs = try? JSONDecoder().decode([SavedTab].self, from: raw), !tabs.isEmpty { data.tabs = tabs; data.selectedTabID = defaults.string(forKey: "browser_last_active_tab_id").flatMap(UUID.init(uuidString:)) }
+        data.searches = defaults.stringArray(forKey: "user_search_history_list")
+        var reading = ReadingPreferences(); if defaults.object(forKey: "reader_fontSize") != nil { reading.fontSize = defaults.double(forKey: "reader_fontSize") }; if defaults.object(forKey: "reader_textOpacity") != nil { reading.textOpacity = defaults.double(forKey: "reader_textOpacity") }; reading.blockedWords = (defaults.string(forKey: "reader_blacklist") ?? "").split(separator: ",").map(String.init); if defaults.object(forKey: "gallery_image_scale") != nil { reading.imageScale = defaults.double(forKey: "gallery_image_scale") }; if defaults.object(forKey: "gallery_scroll_distance") != nil { reading.scrollDistance = defaults.double(forKey: "gallery_scroll_distance") }; data.settings.reading = reading
+        if let raw = defaults.data(forKey: "user_custom_scripts"), let scripts = try? JSONDecoder().decode([BrowserScript].self, from: raw) { data.scripts = scripts }
+        if let engine = defaults.string(forKey: "user_preferred_search_engine"), let value = SearchProvider(rawValue: engine) { data.settings.searchProvider = value }
+        save(data, for: profile)
+    }
+}

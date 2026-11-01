@@ -1,0 +1,25 @@
+zeus-project.json
+ZEUSNext.xcodeproj/
+.zeus-ci/Generated-Info.plist
+.zeus-ci/__pycache__/
+results/
+ZEUSNext/Resources/safari-rules.json
+ZEUSNext/Resources/filter-metadata.json
+ZEUSNext/Resources/FILTER-NOTICES.txt
+
+# Private Cloudflare device connection files never belong in source control.
+ZEUS-Cloudflare-connection*.json
+supabase/.temp/
+Cloud/**/__pycache__/
+# Android lab host configuration, credentials and generated applications.
+AndroidLab/.env
+AndroidLab/**/.gradle/
+AndroidLab/**/build/
+AndroidLab/**/__pycache__/
+android-results/
+
+.zeus-ci/comic/build/
+Pods/
+*.xcworkspace/
+node_modules/
+__pycache__/

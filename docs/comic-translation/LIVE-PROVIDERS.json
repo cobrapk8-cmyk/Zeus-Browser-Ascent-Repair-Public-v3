@@ -1,0 +1,10 @@
+{
+  "tested_at_utc": "2026-11-01",
+  "scope": "Development workspace HTTP smoke tests with synthetic non-user text, not device tests or service availability guarantees",
+  "providers": [
+    {"engine":"google","endpoint":"https://translate.googleapis.com/translate_a/t","http_status":200,"input":"こんにちは","output":"مرحبًا","requires_user_key":false},
+    {"engine":"microsoft","endpoint":"https://edge.microsoft.com/translate/translatetext","http_status":200,"input":"こんにちは","output":"مرحبا","requires_user_key":false},
+    {"engine":"myMemory","endpoint":"https://api.mymemory.translated.net/get","http_status":200,"input":"Hello my friend","output":"مرحبا يا صديقي","requires_user_key":false}
+  ],
+  "keyed_providers": "Adapters added; live account tests require the user's own configured account keys. No keys extracted from Ascent are embedded."
+}
