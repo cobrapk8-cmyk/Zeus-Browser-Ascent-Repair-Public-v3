@@ -99,7 +99,11 @@ class APITests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn(b"actual generated file", self.gateway.objects.values())
         grant = "fixture-grant"
         self.assertEqual(await self.app.state.engine.spaces.read_cloud_file(self.owner, self.conversation, "answer.txt", grant), b"actual generated file")
-        self.assertFalse(self.app.state.engine.spaces.path(self.owner, self.conversation).exists())
+        workspace = self.app.state.engine.spaces.path(self.owner, self.conversation)
+        for _ in range(200):
+            if not workspace.exists(): break
+            await asyncio.sleep(0.01)
+        self.assertFalse(workspace.exists(), "completed cloud run did not clean its workspace")
         response = await self.client.get(f"/v1/runs/{identifier}/events")
         events = response.json()["events"]
         self.assertEqual([e["seq"] for e in events], sorted(e["seq"] for e in events))
