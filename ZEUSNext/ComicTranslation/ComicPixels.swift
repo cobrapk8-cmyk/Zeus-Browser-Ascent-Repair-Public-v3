@@ -135,7 +135,7 @@ enum ComicPixels {
         var maskMinX=width,maskMinY=height,maskMaxX=0,maskMaxY=0
         for line in lines{
             guard line.rect.width>0,line.rect.height>0 else{continue}
-            let glyph= line.vertical ? min(line.rect.width,line.rect.height):line.rect.height
+            let glyph=line.vertical ? min(line.rect.width,line.rect.height):line.rect.height
             let pad=max(2,min(24,glyph*0.34)),inner=max(1,pad*0.56),feather=max(1,pad-inner)
             let core=line.rect.insetBy(dx:-inner,dy:-inner),outer=line.rect.insetBy(dx:-pad,dy:-pad).intersection(imageRect).integral
             guard !outer.isNull,outer.width>0,outer.height>0 else{continue}
