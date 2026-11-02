@@ -256,14 +256,21 @@ import ZEUSBrowser
     func prepareEnvironment(vm: AIChatViewModel) async throws {
         if NativeCloudAccountAPI.usesCloud { return }
         if let session = vm.sessionId { try Self.prepareWorkspace(session: session) }
+        NSLog("[ZEUS Harness] Requesting local runtime; kernelStatus=\(String(describing: vm.kernelStatus))")
         vm.ensureKernelBooted()
-        for _ in 0..<300 {
-            if ISHKernel.shared.isBooted { vm.ensureParentDirsInMetaDB(for: "/var/minis/workspace"); return }
+        for attempt in 0..<1_200 {
+            if ISHKernel.shared.isBooted {
+                NSLog("[ZEUS Harness] Local runtime ready after approximately \(attempt / 10)s")
+                vm.ensureParentDirsInMetaDB(for: "/var/minis/workspace"); return
+            }
             try Task.checkCancellation()
             if case .failed(let reason) = vm.kernelStatus { throw ZeusPatch.failure(reason) }
+            if attempt > 0 && attempt.isMultiple(of: 100) {
+                NSLog("[ZEUS Harness] Still waiting for local runtime; elapsed=\(attempt / 10)s kernelStatus=\(String(describing: vm.kernelStatus))")
+            }
             try await Task.sleep(for: .milliseconds(100))
         }
-        throw ZeusPatch.failure("Local execution environment did not finish starting. No command was launched.")
+        throw ZeusPatch.failure("Local execution environment did not finish starting within 120 seconds (kernelStatus=\(String(describing: vm.kernelStatus))). No command was launched.")
     }
     static func prepareWorkspace(session: String) throws {
         guard !NativeCloudAccountAPI.usesCloud else { return }

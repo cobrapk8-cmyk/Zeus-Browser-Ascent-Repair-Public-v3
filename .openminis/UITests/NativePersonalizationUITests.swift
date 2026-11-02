@@ -24,7 +24,7 @@ final class NativePersonalizationUITests: XCTestCase {
         let app = launchFiles()
         app.buttons["importSingle"].tap()
         try browseLocalFixture(app)
-        file("ZEUS-Picker-A", app).tap()
+        tapFile("ZEUS-Picker-A", app)
         confirmOpen(app)
         expectation(for: NSPredicate(format: "label == %@", "1:readable:ZEUS-Picker-A.txt"), evaluatedWith: app.staticTexts["importResult"])
         waitForExpectations(timeout: 15)
@@ -37,7 +37,7 @@ final class NativePersonalizationUITests: XCTestCase {
         let app = launchFiles()
         app.buttons["importMultiple"].tap()
         try browseLocalFixture(app)
-        file("ZEUS-Picker-A", app).tap(); file("ZEUS-Picker-B", app).tap()
+        tapFile("ZEUS-Picker-A", app); tapFile("ZEUS-Picker-B", app)
         let screen = XCTAttachment(screenshot: app.screenshot()); screen.name = "Files-Multiple-Before-Open"; screen.lifetime = .keepAlways; add(screen)
         confirmOpen(app)
         let result = app.staticTexts["importResult"]
@@ -158,17 +158,23 @@ final class NativePersonalizationUITests: XCTestCase {
     @MainActor private func file(_ name: String, _ app: XCUIApplication) -> XCUIElement {
         app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", name)).firstMatch
     }
+    @MainActor private func tapFile(_ name: String, _ app: XCUIApplication) {
+        let item = file(name, app)
+        XCTAssertTrue(item.waitForExistence(timeout: 15), "The expected Files item \(name) must appear")
+        XCTAssertTrue(item.isHittable, "The expected Files item \(name) must be tappable")
+        item.tap()
+    }
     @MainActor private func browseLocalFixture(_ app: XCUIApplication) throws {
         let local = app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS[c] %@ AND (label CONTAINS[c] %@ OR label CONTAINS %@)", "iPad", "On My", "على")).firstMatch
-        for _ in 0..<3 where !local.exists || !local.isHittable {
+        for _ in 0..<5 where !local.exists || !local.isHittable {
             let browse = app.buttons.matching(NSPredicate(format: "label IN %@", ["Browse", "Show Sidebar", "Sidebar", "استعراض", "إظهار الشريط الجانبي"])).firstMatch
             if browse.waitForExistence(timeout: 5) { browse.tap() }
         }
-        XCTAssertTrue(local.waitForExistence(timeout: 10)); local.tap()
+        XCTAssertTrue(local.waitForExistence(timeout: 10)); XCTAssertTrue(local.isHittable, "On My iPad must be visible in the Files sidebar"); local.tap()
         let zeus = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "ZEUS")).firstMatch
-        XCTAssertTrue(zeus.waitForExistence(timeout: 10)); zeus.tap()
+        XCTAssertTrue(zeus.waitForExistence(timeout: 10)); XCTAssertTrue(zeus.isHittable); zeus.tap()
         let fixture = file("ZEUS-Import-Test", app)
-        XCTAssertTrue(fixture.waitForExistence(timeout: 10)); fixture.tap()
+        XCTAssertTrue(fixture.waitForExistence(timeout: 10)); XCTAssertTrue(fixture.isHittable); fixture.tap()
     }
     @MainActor private func cancelSystemFiles(_ app: XCUIApplication) {
         // The original OpenMinis folder sheet has only the system Cancel.
@@ -180,20 +186,27 @@ final class NativePersonalizationUITests: XCTestCase {
     @MainActor func testFilesReferenceMultipleUsingOnlyUIKit() throws {
         let app = launchFiles(); app.buttons["referenceMultiple"].tap()
         try browseLocalFixture(app)
-        file("ZEUS-Picker-A", app).tap(); file("ZEUS-Picker-B", app).tap()
+        tapFile("ZEUS-Picker-A", app); tapFile("ZEUS-Picker-B", app)
         confirmOpen(app)
         expectation(for: NSPredicate(format: "label == %@", "2:readable:ZEUS-Picker-A.txt,ZEUS-Picker-B.txt"), evaluatedWith: app.staticTexts["importResult"])
         waitForExpectations(timeout: 15)
     }
     @MainActor func testFilesReferenceSingleUsingOnlyUIKit() throws {
         let app = launchFiles(); app.buttons["referenceSingle"].tap()
-        try browseLocalFixture(app); file("ZEUS-Picker-A", app).tap(); confirmOpen(app)
+        try browseLocalFixture(app); tapFile("ZEUS-Picker-A", app); confirmOpen(app)
         expectation(for: NSPredicate(format: "label == %@", "1:readable:ZEUS-Picker-A.txt"), evaluatedWith: app.staticTexts["importResult"])
         waitForExpectations(timeout: 15)
     }
     @MainActor private func confirmOpen(_ app: XCUIApplication) {
         let open = app.buttons.matching(NSPredicate(format: "label IN %@ OR label BEGINSWITH %@", ["Open", "Import", "Choose", "فتح", "استيراد", "اختيار"], "Open (")).firstMatch
-        if open.waitForExistence(timeout: 3), open.isEnabled { open.tap() }
+        XCTAssertTrue(open.waitForExistence(timeout: 15), "Files must expose its real Open/Import button")
+        if !open.isEnabled {
+            expectation(for: NSPredicate(format: "enabled == true"), evaluatedWith: open)
+            waitForExpectations(timeout: 10)
+        }
+        XCTAssertTrue(open.isEnabled, "Open must become enabled after selecting the requested item")
+        XCTAssertTrue(open.isHittable)
+        open.tap()
     }
     @MainActor func testPortraitIPadEditedPresetKeepsTabletButtonsAndSizesAfterRotation() throws {
         continueAfterFailure = false

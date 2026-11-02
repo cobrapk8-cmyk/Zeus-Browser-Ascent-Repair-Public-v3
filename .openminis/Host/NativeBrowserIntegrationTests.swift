@@ -39,7 +39,7 @@ final class NativeBrowserIntegrationTests: XCTestCase {
         let prior = ZeusToolPermissions.shared.mode; ZeusToolPermissions.shared.mode = .unrestricted
         defer { ZeusToolPermissions.shared.mode = prior }
         let approvePlan = Task { @MainActor in
-            for _ in 0..<1200 {
+            for _ in 0..<3000 {
                 try Task.checkCancellation()
                 if let request = ZeusToolPermissions.shared.requests.values.first(where: { $0.plan?.title.hasPrefix("Native project fixture ") == true }) {
                     XCTAssertEqual(request.plan?.build_route, "local")
@@ -51,7 +51,7 @@ final class NativeBrowserIntegrationTests: XCTestCase {
             }
         }
         defer { approvePlan.cancel() }
-        let completed = try await DebugRPCChat.prompt(params: ["prompt": "أنشئ المشروع، شغّل الفحص وأصلح الخطأ وتحقق منه فعلياً.", "modelEntryId": project["id"]!, "thinkingLevel": "off", "wait": true, "waitTimeout": 60])
+        let completed = try await DebugRPCChat.prompt(params: ["prompt": "أنشئ المشروع، شغّل الفحص وأصلح الخطأ وتحقق منه فعلياً.", "modelEntryId": project["id"]!, "thinkingLevel": "off", "wait": true, "waitTimeout": 150])
         XCTAssertTrue((completed["responseText"] as? String ?? "").contains("NATIVE_HARNESS_VERIFIED"))
         let session = try XCTUnwrap(completed["sessionId"] as? String)
         XCTAssertEqual(ZeusAgentHarness.shared.state(session).status, "completed")

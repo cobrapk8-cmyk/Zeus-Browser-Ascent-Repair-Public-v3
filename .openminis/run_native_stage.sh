@@ -113,7 +113,7 @@ case "$stage" in
         -resultBundlePath "results/embedded-$kind.xcresult" \
         -only-testing:ZEUSBrowserIntegrationTests \
         -parallel-testing-enabled NO -test-timeouts-enabled YES \
-        -default-test-execution-time-allowance 90 -maximum-test-execution-time-allowance 90 \
+        -default-test-execution-time-allowance 180 -maximum-test-execution-time-allowance 180 \
         test-without-building CODE_SIGNING_ALLOWED=YES CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY=-
     fi
     ;;

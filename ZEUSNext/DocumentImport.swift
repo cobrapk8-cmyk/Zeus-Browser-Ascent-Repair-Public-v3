@@ -41,13 +41,13 @@ public struct ZEUSFilePicker: UIViewControllerRepresentable {
 
 public extension View {
     func zeusFileImporter(isPresented: Binding<Bool>, allowedContentTypes: [UTType],
-                          allowsMultipleSelection: Bool, asCopy: Bool = false,
+                          allowsMultipleSelection: Bool, asCopy: Bool = true,
                           onCompletion: @escaping (Result<[URL], Error>) -> Void) -> some View {
         background(ZEUSSystemFilesPresentation(presented: isPresented, types: allowedContentTypes,
-                                             multiple: allowsMultipleSelection, completion: onCompletion)
+                                             multiple: allowsMultipleSelection, asCopy: asCopy, completion: onCompletion)
             .frame(width: 0, height: 0).accessibilityHidden(true))
     }
-    func zeusFileImporter(isPresented: Binding<Bool>, allowedContentTypes: [UTType], asCopy: Bool = false,
+    func zeusFileImporter(isPresented: Binding<Bool>, allowedContentTypes: [UTType], asCopy: Bool = true,
                           onCompletion: @escaping (Result<URL, Error>) -> Void) -> some View {
         zeusFileImporter(isPresented: isPresented, allowedContentTypes: allowedContentTypes, allowsMultipleSelection: false, asCopy: asCopy) {
             onCompletion($0.flatMap { urls in urls.first.map(Result.success) ?? .failure(CocoaError(.fileReadUnknown)) })
@@ -56,20 +56,21 @@ public extension View {
 }
 
 /// Present the complete system controller modally, rather than embedding its
-/// view as a SwiftUI cover. Files are imported as temporary copies: unlike
-/// open-in-place bookmarks, this also works when a provider cannot resolve a
-/// document bookmark. Folder selections retain their in-place access.
+/// view as a SwiftUI cover. Files are copied by default; multi-file routes may
+/// explicitly request open-in-place with a balanced security-scoped lease.
+/// Folder selections always retain their in-place access.
 private struct ZEUSSystemFilesPresentation: UIViewControllerRepresentable {
     @Binding var presented: Bool
     let types: [UTType]
     let multiple: Bool
+    let asCopy: Bool
     let completion: (Result<[URL], Error>) -> Void
     #if DEBUG
     var exporting: [URL]? = nil
     #endif
     func makeUIViewController(context: Context) -> Host { Host() }
     func updateUIViewController(_ host: Host, context: Context) {
-        host.binding = $presented; host.types = types; host.multiple = multiple; host.completion = completion
+        host.binding = $presented; host.types = types; host.multiple = multiple; host.asCopy = asCopy; host.completion = completion
         #if DEBUG
         host.exporting = exporting
         #endif
@@ -83,12 +84,13 @@ private struct ZEUSSystemFilesPresentation: UIViewControllerRepresentable {
         var binding: Binding<Bool>?
         var types: [UTType] = [.item]
         var multiple = false
+        var asCopy = true
         var completion: ((Result<[URL], Error>) -> Void)?
         var requested = false
         var picker: UIDocumentPickerViewController?
         private var queued = false
         private var finishing = false
-        private var selectedFolderAccess: ZEUSSystemFolderAccess?
+        private var selectedResourceAccess: ZEUSSystemResourceAccess?
         #if DEBUG
         var exporting: [URL]?
         #endif
@@ -114,11 +116,11 @@ private struct ZEUSSystemFilesPresentation: UIViewControllerRepresentable {
             if let exporting {
                 controller = UIDocumentPickerViewController(forExporting: exporting, asCopy: true)
             } else {
-                controller = UIDocumentPickerViewController(forOpeningContentTypes: types, asCopy: !folders)
+                controller = UIDocumentPickerViewController(forOpeningContentTypes: types, asCopy: !folders && asCopy)
                 controller.allowsMultipleSelection = multiple
             }
             #else
-            controller = UIDocumentPickerViewController(forOpeningContentTypes: types, asCopy: !folders)
+            controller = UIDocumentPickerViewController(forOpeningContentTypes: types, asCopy: !folders && asCopy)
             controller.allowsMultipleSelection = multiple
             #endif
             controller.shouldShowFileExtensions = true
@@ -127,7 +129,7 @@ private struct ZEUSSystemFilesPresentation: UIViewControllerRepresentable {
             controller.preferredContentSize = CGSize(width: 900, height: 700)
             picker = controller
             #if DEBUG
-            NSLog("[ZEUS Files] present copy=\(!folders) multiple=\(multiple)")
+            NSLog("[ZEUS Files] present copy=\(!folders && asCopy) multiple=\(multiple)")
             #endif
             presenter.present(controller, animated: true)
             controller.presentationController?.delegate = self
@@ -137,12 +139,9 @@ private struct ZEUSSystemFilesPresentation: UIViewControllerRepresentable {
             #if DEBUG
             NSLog("[ZEUS Files] selected count=\(urls.count)")
             #endif
-            // Acquire provider access in the delegate callback, before the
-            // system dismisses Files. The folder confirmation takes its own
-            // balanced lease before this temporary handoff lease is released.
-            if types.contains(where: { $0.conforms(to: .folder) }) {
-                selectedFolderAccess = ZEUSSystemFolderAccess(urls)
-            }
+            // Keep provider access alive through callback delivery. Folder
+            // mounts and open-in-place imports can then take their own lease.
+            selectedResourceAccess = ZEUSSystemResourceAccess(urls)
             finish(urls.isEmpty ? .failure(CocoaError(.fileReadUnknown)) : .success(urls))
         }
         func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) { if controller === picker { finish(nil) } }
@@ -154,8 +153,8 @@ private struct ZEUSSystemFilesPresentation: UIViewControllerRepresentable {
             let delivered = { [weak self] in
                 guard let self else { return }
                 self.picker = nil; self.binding?.wrappedValue = false; self.finishing = false
-                let access = self.selectedFolderAccess
-                self.selectedFolderAccess = nil
+                let access = self.selectedResourceAccess
+                self.selectedResourceAccess = nil
                 withExtendedLifetime(access) { if let result { callback?(result) } }
             }
             if controller.presentingViewController == nil { delivered(); return }
@@ -167,7 +166,7 @@ private struct ZEUSSystemFilesPresentation: UIViewControllerRepresentable {
 }
 
 /// Balanced access retained across UIKit dismissal and callback delivery.
-private final class ZEUSSystemFolderAccess {
+private final class ZEUSSystemResourceAccess {
     private let active: [URL]
     init(_ urls: [URL]) { active = urls.filter { $0.startAccessingSecurityScopedResource() } }
     deinit { active.forEach { $0.stopAccessingSecurityScopedResource() } }
@@ -194,7 +193,7 @@ private struct ZEUSNativeReferenceFiles: UIViewControllerRepresentable {
         override func viewDidAppear(_ animated: Bool) { super.viewDidAppear(animated); openIfRequested() }
         func openIfRequested() {
             guard shown?.wrappedValue == true, picker == nil, view.window != nil else { return }
-            let value = UIDocumentPickerViewController(forOpeningContentTypes: [.item], asCopy: true)
+            let value = UIDocumentPickerViewController(forOpeningContentTypes: [.item], asCopy: false)
             value.allowsMultipleSelection = multiple
             value.delegate = self
             picker = value
@@ -202,7 +201,8 @@ private struct ZEUSNativeReferenceFiles: UIViewControllerRepresentable {
         }
         func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
             NSLog("[ZEUS Files Reference] selected count=\(urls.count)")
-            completion?(.success(urls))
+            let access = ZEUSSystemResourceAccess(urls)
+            withExtendedLifetime(access) { completion?(.success(urls)) }
             shown?.wrappedValue = false; picker = nil
             controller.dismiss(animated: true)
         }
@@ -229,7 +229,7 @@ public struct ZEUSFileImportDiagnostics: View {
         NavigationStack {
             controls.navigationTitle("Files import verification")
                 .zeusFileImporter(isPresented: $presented, allowedContentTypes: mode == 2 ? [.folder] : [.item],
-                                  allowsMultipleSelection: mode == 1, onCompletion: picked)
+                                  allowsMultipleSelection: mode == 1, asCopy: mode == 0, onCompletion: picked)
         }
         .background(exportPresentation)
         .background(referencePresentation)
@@ -251,7 +251,7 @@ public struct ZEUSFileImportDiagnostics: View {
     }
 
     private var exportPresentation: some View {
-        ZEUSSystemFilesPresentation(presented: $exporting, types: [], multiple: false,
+        ZEUSSystemFilesPresentation(presented: $exporting, types: [], multiple: false, asCopy: true,
                                     completion: exported, exporting: exportFiles)
             .frame(width: 0, height: 0).accessibilityHidden(true)
     }
