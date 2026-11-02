@@ -14,14 +14,17 @@ enum ComicBalloons {
             guard let plate=interior(line.rect,pixels:pixels,width:image.width,height:image.height)else{unplated.append(line);continue}
             let candidates=plates.indices.filter{overlap(plates[$0].detected,plate)>0.7}
             var nearest:(Int,CGFloat,ComicLine,Divider?)?
+            var nearestWithDivider:(Int,CGFloat,ComicLine,Divider)?
             for index in candidates{
-                guard let prior=plates[index].lines.min(by:{distance($0.rect,line.rect)<distance($1.rect,line.rect)})else{continue}
-                let d=distance(prior.rect,line.rect),verticalText=prior.rect.height>prior.rect.width*1.5&&line.rect.height>line.rect.width*1.5
-                let divider=separatingDivider(prior.rect,line.rect,plate:plates[index].detected,verticalText:verticalText,pixels:pixels,width:image.width,height:image.height)
-                if let current=nearest{if d<current.1{nearest=(index,d,prior,divider)}}else{nearest=(index,d,prior,divider)}
+                for prior in plates[index].lines{
+                    let d=distance(prior.rect,line.rect),verticalText=prior.rect.height>prior.rect.width*1.5&&line.rect.height>line.rect.width*1.5
+                    let divider=separatingDivider(prior.rect,line.rect,plate:plates[index].detected,verticalText:verticalText,pixels:pixels,width:image.width,height:image.height)
+                    if let current=nearest{if d<current.1{nearest=(index,d,prior,divider)}}else{nearest=(index,d,prior,divider)}
+                    if let divider{if let current=nearestWithDivider{if d<current.1{nearestWithDivider=(index,d,prior,divider)}}else{nearestWithDivider=(index,d,prior,divider)}}
+                }
             }
-            if let nearest,let divider=nearest.3{
-                addSeparated(line,prior:nearest.2,divider:divider,index:nearest.0,detected:plate,plates:&plates)
+            if let nearestWithDivider{
+                addSeparated(line,prior:nearestWithDivider.2,divider:nearestWithDivider.3,index:nearestWithDivider.0,detected:plate,plates:&plates)
             }else if let nearest{plates[nearest.0].lines.append(line)}
             else{plates.append(Plate(detected:plate,bounds:plate,lines:[line]))}
         }

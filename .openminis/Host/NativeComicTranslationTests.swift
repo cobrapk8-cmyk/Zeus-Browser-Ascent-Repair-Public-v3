@@ -166,12 +166,12 @@ import UIKit
         let image=renderer(CGSize(width:320,height:240)).image{context in
             UIColor.darkGray.setFill();context.fill(CGRect(x:0,y:0,width:320,height:240))
             UIColor.white.setFill();UIBezierPath(ovalIn:CGRect(x:40,y:20,width:240,height:200)).fill()
-            UIColor.black.setStroke();let drawingStroke=UIBezierPath();drawingStroke.move(to:CGPoint(x:78,y:116));drawingStroke.addLine(to:CGPoint(x:242,y:116));drawingStroke.lineWidth=3;drawingStroke.stroke()
+            UIColor.black.setStroke();let drawingStroke=UIBezierPath();drawingStroke.move(to:CGPoint(x:72,y:90));drawingStroke.addLine(to:CGPoint(x:224,y:150));drawingStroke.lineWidth=3;drawingStroke.stroke()
         }.cgImage!
-        let upper=ComicLine(text:"FIRST",confidence:0.98,rect:CGRect(x:104,y:70,width:110,height:28))
-        let lower=ComicLine(text:"SECOND",confidence:0.98,rect:CGRect(x:104,y:132,width:110,height:28))
+        let upper=ComicLine(text:"FIRST",confidence:0.98,rect:CGRect(x:104,y:60,width:110,height:28))
+        let lower=ComicLine(text:"SECOND",confidence:0.98,rect:CGRect(x:104,y:152,width:110,height:28))
         let speeches=ComicBalloons.speeches([upper,lower],image:image,source:"en")
-        XCTAssertEqual(speeches.count,1,"A long stroke floating inside one connected balloon is artwork, not a divider between speech bubbles")
+        XCTAssertEqual(speeches.count,1,"A long diagonal artwork stroke has no row-long run and is not a divider between speech bubbles")
         XCTAssertEqual(speeches.first?.lines.map(\.text),["FIRST","SECOND"])
     }
     func testRendererCleanupRemovesGlyphsAndPreservesTexturedGradient()throws{
