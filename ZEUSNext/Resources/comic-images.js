@@ -6,7 +6,7 @@
   const documentID = uuid();
   const records = new Map(), ids = new WeakMap(), transfers = new Map();
   const outputs=new Map();
-  let sequence = 0, generation = 0, active = false, observerTimer, viewportTimer;
+  let sequence = 0, generation = 0, active = false, observerTimer, viewportTimer, imageTimer;
   const lazyAttributes = ['data-src','data-lazy-src','data-original','data-lazy','data-url','data-echo','data-cfsrc','data-pagespeed-lazy-src','data-ks-lazyload'];
   const absolute = v => { try { return new URL(v, location.href).href; } catch { return ''; } };
   const css = (el,n) => [el.style.getPropertyValue(n),el.style.getPropertyPriority(n)];
@@ -165,6 +165,19 @@
     if(external){clearTimeout(observerTimer);observerTimer=setTimeout(()=>notify('changed'),200);}
   });
   observer.observe(document.documentElement,{subtree:true,childList:true,attributes:true,attributeFilter:['src','srcset','style']});
+  function imageEvent(event){
+    if(!active)return;
+    const image=event.target;
+    if(!(image instanceof HTMLImageElement))return;
+    const id=ids.get(image),r=id&&records.get(id);
+    if(!r)return;
+    const current=image.currentSrc||image.src||'';
+    if(r.urls.has(current))return;
+    clearTimeout(imageTimer);
+    imageTimer=setTimeout(()=>{if(active)notify(event.type==='error'?'image-error':'image-load');},120);
+  }
+  document.addEventListener('load',imageEvent,true);
+  document.addEventListener('error',imageEvent,true);
   addEventListener('scroll',()=>{if(!active)return;clearTimeout(viewportTimer);viewportTimer=setTimeout(()=>notify('viewport'),120);},{passive:true});
   addEventListener('pageshow',e=>{if(e.persisted)restore();notify('ready');});
   setInterval(()=>{for(const r of records.values())if(r.holdUntil&&r.holdUntil<Date.now())release(r);for(const [id,t]of transfers)if(Date.now()-t.at>30000)transfers.delete(id);},5000);

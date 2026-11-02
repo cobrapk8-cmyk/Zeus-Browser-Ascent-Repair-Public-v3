@@ -5,11 +5,12 @@ import {JSDOM} from 'jsdom';
 const source=readFileSync(new URL('../../ZEUSNext/Resources/comic-images.js',import.meta.url),'utf8');
 function setup(html='<img src="/panel.png">', insecure=false){
  const dom=new JSDOM('<!doctype html><body>'+html+'</body>',{url:'https://reader.example/chapter',runScripts:'outside-only'}),w=dom.window;
+ const messages=[];Object.defineProperty(w,'webkit',{value:{messageHandlers:{zeusComic:{postMessage:value=>messages.push(value)}}}});
  Object.defineProperty(w,'visualViewport',{value:{height:800}});
- w.URL.createObjectURL=()=>`blob:https://reader.example/${Math.random()}`;w.URL.revokeObjectURL=()=>{};
- for(const image of w.document.images){Object.defineProperties(image,{naturalWidth:{get:()=>image.dataset.pending==='yes'?0:200},naturalHeight:{get:()=>image.dataset.pending==='yes'?0:400},complete:{get:()=>image.dataset.pending!=='yes'},currentSrc:{get:()=>image.src}});image.getBoundingClientRect=()=>({left:0,top:100,right:200,bottom:500,width:200,height:400});}
- if(insecure)Object.defineProperty(w.crypto,'randomUUID',{value:undefined});
- w.eval(source);return {dom,w,bridge:w.zeusComic,close:()=>w.close()};
+  w.URL.createObjectURL=()=>`blob:https://reader.example/${Math.random()}`;w.URL.revokeObjectURL=()=>{};
+  for(const image of w.document.images){Object.defineProperties(image,{naturalWidth:{get:()=>image.dataset.pending==='yes'?0:200},naturalHeight:{get:()=>image.dataset.pending==='yes'?0:400},complete:{get:()=>image.dataset.pending!=='yes'},currentSrc:{get:()=>image.src}});image.getBoundingClientRect=()=>({left:0,top:100,right:200,bottom:500,width:200,height:400});}
+  if(insecure)Object.defineProperty(w.crypto,'randomUUID',{value:undefined});
+ w.eval(source);return {dom,w,bridge:w.zeusComic,messages,close:()=>w.close()};
 }
 test('stable identity survives scrolling and geometry changes',()=>{const s=setup();try{const a=s.bridge.scan(false).items[0];s.w.document.images[0].getBoundingClientRect=()=>({left:0,top:200,right:300,bottom:800,width:300,height:600});const b=s.bridge.scan(false).items[0];assert.equal(a.id,b.id);assert.equal(a.revision,b.revision);}finally{s.close()}});
 test('unloaded lazy panels remain gaps and wake budget is bounded',()=>{const s=setup(Array.from({length:10},(_,i)=>`<img data-pending="yes" data-src="/p${i}.jpg" src="/spinner.gif">`).join(''));try{const e=s.bridge.scan(true);assert.equal(e.items.length,10);assert.ok(e.items.every(i=>i.pending));assert.equal([...s.w.document.images].filter(i=>i.src.endsWith('.jpg')).length,4);}finally{s.close()}});
@@ -24,3 +25,7 @@ test('large data URLs cross the probe as a short content identity',()=>{const s=
 test('ordinary HTTP without randomUUID can still create isolated document identity',()=>{const s=setup('<img src="/panel.png">',true);try{assert.match(s.bridge.documentID,/^[a-f0-9]{32}$/);assert.equal(s.bridge.scan(false).items.length,1);}finally{s.close()}});
 
 test('image overlays are not rediscovered as a second background candidate',()=>{const s=setup('<img src="/panel.png" style="background-image:url(/original.png)">');try{assert.equal(s.bridge.scan(false).items.length,1);}finally{s.close()}});
+
+test('late image load schedules a scan without scrolling',async()=>{const s=setup('<img data-pending="yes" src="/panel.png">');try{const image=s.w.document.images[0];s.bridge.scan(false);s.bridge.start();image.dataset.pending='no';image.dispatchEvent(new s.w.Event('load'));await new Promise(r=>setTimeout(r,160));assert.ok(s.messages.some(m=>m.kind==='image-load'));assert.equal(s.bridge.scan(false).items[0].pending,false);}finally{s.close()}});
+
+test('image errors notify the active translator without exposing image URLs',async()=>{const s=setup('<img src="/panel.png">');try{const image=s.w.document.images[0];s.bridge.scan(false);s.bridge.start();image.dispatchEvent(new s.w.Event('error'));await new Promise(r=>setTimeout(r,160));assert.ok(s.messages.some(m=>m.kind==='image-error'));assert.ok(s.messages.every(m=>!JSON.stringify(m).includes('panel.png')));}finally{s.close()}});

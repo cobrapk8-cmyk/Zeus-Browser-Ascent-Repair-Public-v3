@@ -122,6 +122,11 @@ import UIKit
         XCTAssertEqual(decoded.settings.translation?.target,"fr");XCTAssertEqual(decoded.settings.comicTranslation?.translation?.target,"ar")
         XCTAssertEqual(ComicPreferences().mode,.fastest)
     }
+    func testFailedNeighbourContextDoesNotCancelCurrentImage()async throws{
+        let context=try await ComicTranslation.optionalContext("test"){()->Int in throw URLError(.timedOut)}
+        XCTAssertNil(context)
+        do{_ = try await ComicTranslation.optionalContext("test"){()->Int in throw CancellationError()};XCTFail("Cancellation must stop the image job")}catch is CancellationError{}catch{XCTFail(error.localizedDescription)}
+    }
     func testImageFallbackAllowsPublicHTTPSAndNeverSendsCookies(){
         let page=URL(string:"https://reader.example.net/series/one")!
         let sameOrigin=URL(string:"https://reader.example.net/panel.png")!
@@ -239,6 +244,68 @@ import UIKit
         let original=try await view.evaluateJavaScript("document.images[0].src")as? String
         XCTAssertTrue(original?.hasPrefix("https://raw.githubusercontent.com/")==true,"Original HTTPS image source should be restored")
         try await ComicMemory.shared.clear(profile:model.profile.id)
+    }
+    func testCrossOriginNoReferrerImageTranslatesWhenServerRejectsReferer()async throws{
+        let root=FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let model=BrowserModel(profiles:ProfileStore(root:root,downloadsRoot:root.appendingPathComponent("Downloads")),useBackgroundDownloads:false)
+        model.data.settings.shieldsEnabled=false
+        var provider=AIProviderConfiguration();provider.baseURL="http://127.0.0.1:8765/v1";provider.model="referrer-"+UUID().uuidString;model.data.settings.aiProviders=[provider]
+        var preferences=ComicPreferences();preferences.source="en";preferences.showUntranslated=true
+        var translation=TranslationPreferences();translation.engine = .ai;translation.providerID=provider.id;preferences.translation=translation;model.data.settings.comicTranslation=preferences
+        let tab=try XCTUnwrap(model.current),page=URL(string:"http://127.0.0.1:8765/comic-referrer-guard-page")!;tab.url=page.absoluteString
+        let prepared=await model.prepare(tab),view=try XCTUnwrap(prepared),session=try XCTUnwrap(tab.comicTranslation)
+        let scene=try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap{$0 as? UIWindowScene}.first)
+        let window=UIWindow(windowScene:scene);window.frame=scene.screen.bounds;window.rootViewController=UIViewController();view.frame=window.bounds;window.rootViewController?.view.addSubview(view);window.windowLevel = .normal+1;window.makeKeyAndVisible()
+        defer{session.pause();tab.dispose();window.isHidden=true;try? FileManager.default.removeItem(at:root)}
+        view.load(URLRequest(url:page))
+        var ready=false,deadline=Date().addingTimeInterval(20)
+        while Date()<deadline{if (try? await view.callAsyncJavaScript("return !!globalThis.zeusComic && document.images[0]?.complete && document.images[0]?.naturalWidth>0",arguments:[:],in:nil,contentWorld:ComicTranslation.world))as? Bool==true{ready=true;break};try await Task.sleep(for:.milliseconds(100))}
+        XCTAssertTrue(ready,"The cross-origin no-referrer fixture image should load in WebKit")
+        session.start();deadline=Date().addingTimeInterval(45)
+        while Date()<deadline && session.completed==0 && session.error==nil{try await Task.sleep(for:.milliseconds(100))}
+        XCTAssertTrue(session.error==nil,"The image pipeline should succeed when Referer is rejected")
+        XCTAssertGreaterThan(session.imageFallbackCount,0,"A tainted cross-origin canvas must use native image fallback")
+        XCTAssertGreaterThan(session.ocrRuns,0);XCTAssertGreaterThan(session.completed,0)
+        let requestsURL=URL(string:"http://127.0.0.1:8765/translation-requests?model="+provider.model)!
+        let (requestData,_)=try await URLSession.shared.data(from:requestsURL),requests=try XCTUnwrap(JSONSerialization.jsonObject(with:requestData)as? [[String]])
+        XCTAssertFalse(requests.isEmpty,"The configured fixture provider must receive the recognized text")
+        let unchanged=try await view.evaluateJavaScript("document.querySelector('#text').textContent")as? String
+        XCTAssertTrue(unchanged=="The article text remains untouched.","Image translation must not alter page text")
+        await session.restore();try await ComicMemory.shared.clear(profile:model.profile.id)
+    }
+    func testLiveComixChapterTranslationWhenOptedIn()async throws{
+        guard ["true","1"].contains(ProcessInfo.processInfo.environment["ZEUS_RUN_COMIX_LIVE_SMOKE"] ?? "") else{throw XCTSkip("Opt-in live chapter smoke test")}
+        let root=FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let model=BrowserModel(profiles:ProfileStore(root:root,downloadsRoot:root.appendingPathComponent("Downloads")),useBackgroundDownloads:false)
+        model.data.settings.shieldsEnabled=false
+        var provider=AIProviderConfiguration();provider.baseURL="http://127.0.0.1:8765/v1";provider.model="live-"+UUID().uuidString;model.data.settings.aiProviders=[provider]
+        var preferences=ComicPreferences();preferences.source="en";preferences.showUntranslated=true
+        var translation=TranslationPreferences();translation.engine = .ai;translation.providerID=provider.id;preferences.translation=translation;model.data.settings.comicTranslation=preferences
+        let page=URL(string:"https://comix.to/title/z0l20-god-level-assassin-im-the-shadow/11531282-chapter-148")!
+        let tab=try XCTUnwrap(model.current);tab.url=page.absoluteString
+        let prepared=await model.prepare(tab),view=try XCTUnwrap(prepared),session=try XCTUnwrap(tab.comicTranslation)
+        let scene=try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap{$0 as? UIWindowScene}.first)
+        let window=UIWindow(windowScene:scene);window.frame=scene.screen.bounds;window.rootViewController=UIViewController();view.frame=window.bounds;window.rootViewController?.view.addSubview(view);window.windowLevel = .normal+1;window.makeKeyAndVisible()
+        defer{session.pause();tab.dispose();window.isHidden=true;try? FileManager.default.removeItem(at:root)}
+        view.load(URLRequest(url:page))
+        var loadedImages=0,externalImages=false,deadline=Date().addingTimeInterval(45)
+        while Date()<deadline{
+            let probe=(try? await view.callAsyncJavaScript("const images=Array.from(document.images).filter(i=>i.complete&&i.naturalWidth>=120&&i.naturalHeight>=120);return {loaded:images.length,external:images.some(i=>{try{return new URL(i.currentSrc||i.src,location.href).host!==location.host}catch{return false}})}",arguments:[:],in:nil,contentWorld:ComicTranslation.world))as? [String:Any]
+            loadedImages=probe?["loaded"]as? Int ?? 0;externalImages=probe?["external"]as? Bool ?? false
+            if loadedImages>0{break};try await Task.sleep(for:.milliseconds(200))
+        }
+        XCTAssertGreaterThan(loadedImages,0,"The live chapter should expose at least one loaded comic image")
+        session.start();deadline=Date().addingTimeInterval(105)
+        while Date()<deadline && (session.completed==0 || (externalImages && session.imageFallbackCount==0)){try await Task.sleep(for:.milliseconds(200))}
+        let applied=session.completed,fallbacks=session.imageFallbackCount,ocr=session.ocrRuns
+        session.pause()
+        XCTAssertGreaterThan(applied,0,"At least one live chapter image must be translated and applied")
+        XCTAssertGreaterThan(ocr,0,"The live chapter must pass through on-device OCR")
+        if externalImages{XCTAssertGreaterThan(fallbacks,0,"External chapter images must use the native fallback")}
+        let endpoint=URL(string:"http://127.0.0.1:8765/translation-requests?model="+provider.model)!
+        let (requestData,_)=try await URLSession.shared.data(from:endpoint),requests=try XCTUnwrap(JSONSerialization.jsonObject(with:requestData)as? [[String]])
+        XCTAssertFalse(requests.isEmpty,"The configured provider fixture must receive recognized text")
+        await session.restore();try await ComicMemory.shared.clear(profile:model.profile.id)
     }
     func testOCRAndTranslationCachesAreSeparateAndProfileScoped()async throws{
         let first=UUID(),second=UUID(),bytes=Data("reading".utf8)

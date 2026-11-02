@@ -20,6 +20,8 @@ def chunk(kind, value):
 
 rows = b''.join(b'\0' + bytes([255 if (x // 25 + y // 25) % 2 else 0 for x in range(200)]) for y in range(400))
 IMAGE = b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', struct.pack('>IIBBBBB', 200, 400, 8, 0, 0, 0, 0)) + chunk(b'IDAT', zlib.compress(rows)) + chunk(b'IEND', b'')
+with open(os.path.join(os.path.dirname(__file__), 'fixtures', 'comic-hello-world.png'), 'rb') as fixture:
+    COMIC_IMAGE = fixture.read()
 
 def harness_events(body):
     results = [m for m in body.get('messages', []) if m.get('role') == 'tool' and m.get('tool_call_id', '').startswith('zeus-harness-')]
@@ -252,6 +254,14 @@ class Handler(BaseHTTPRequestHandler):
             <p translate="no" id="keep">Leave this sentence untouched.</p>
             <button onclick="const p=document.createElement('p');p.id='dynamic';p.textContent='Another chapter arrives after the initial translation.';document.body.append(p)">Add paragraph</button>
             <a href="/translate-fixture?next">Next page</a><iframe src="/translate-frame" width="500" height="80"></iframe></body></html>'''
+            self.send_response(200); self.send_header('Content-Type', 'text/html; charset=utf-8'); self.send_header('Content-Length', str(len(body))); self.end_headers(); self.wfile.write(body); return
+        if self.path.split('?', 1)[0] == '/comic-referrer-guard.png':
+            if self.headers.get('Referer'):
+                self.send_response(403); self.send_header('Content-Length', '0'); self.end_headers(); return
+            self.send_response(200); self.send_header('Content-Type', 'image/png'); self.send_header('Cache-Control', 'no-store'); self.send_header('Content-Length', str(len(COMIC_IMAGE))); self.end_headers(); self.wfile.write(COMIC_IMAGE); return
+        if self.path.split('?', 1)[0] == '/comic-referrer-guard-page':
+            body = b'''<!doctype html><html lang="en"><body><p id="text">The article text remains untouched.</p>
+            <img id="comic" width="200" height="400" referrerpolicy="no-referrer" src="http://127.0.0.2:8765/comic-referrer-guard.png"></body></html>'''
             self.send_response(200); self.send_header('Content-Type', 'text/html; charset=utf-8'); self.send_header('Content-Length', str(len(body))); self.end_headers(); self.wfile.write(body); return
         if self.path.startswith('/image.png'):
             self.send_response(200); self.send_header('Content-Type', 'image/png'); self.send_header('Content-Length', str(len(IMAGE))); self.end_headers(); self.wfile.write(IMAGE)

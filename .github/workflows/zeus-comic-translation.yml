@@ -6,6 +6,12 @@ on:
   pull_request:
     paths: ['ZEUSNext/**', 'ZEUSNextTests/**', 'Native/ComicRuntime/**', '.zeus-ci/**', '.openminis/Host/NativeComicTranslationTests.swift', '.github/workflows/zeus-comic-translation.yml']
   workflow_dispatch:
+    inputs:
+      run_live_comix_smoke:
+        description: Run the public Comix chapter smoke test with a local translation fixture
+        required: false
+        default: false
+        type: boolean
 permissions:
   contents: read
 concurrency:
@@ -67,9 +73,16 @@ jobs:
           python3 - <<'PY'
           import json,subprocess,os
           devices=json.loads(subprocess.check_output(['xcrun','simctl','list','devices','available','-j']))['devices']
-          choices=[d for runtime,ds in devices.items() if 'iOS-26' in runtime for d in ds if 'iPhone' in d['name']]
-          assert choices
-          with open(os.environ['GITHUB_ENV'],'a') as f:f.write('COMIC_SIMULATOR='+choices[0]['udid']+'\n')
+          types=json.loads(subprocess.check_output(['xcrun','simctl','list','devicetypes','-j']))['devicetypes']
+          sdk=subprocess.check_output(['xcrun','--sdk','iphonesimulator','--show-sdk-version'],text=True).strip()
+          suffix='iOS-'+'.'.join(sdk.split('.')[:2]).replace('.','-')
+          matches=[(runtime,device) for runtime,group in devices.items() if runtime.endswith(suffix) for device in group if 'iPhone' in device['name']]
+          if not matches: raise SystemExit('No iPhone simulator matches the active iOS SDK '+sdk)
+          runtime,device=matches[0]
+          type_id=device.get('deviceTypeIdentifier') or next(t['identifier'] for t in types if t['name']==device['name'])
+          name='ZEUS-Comic-'+os.environ['GITHUB_RUN_ID']
+          identifier=subprocess.check_output(['xcrun','simctl','create',name,type_id,runtime],text=True).strip()
+          with open(os.environ['GITHUB_ENV'],'a') as f:f.write('COMIC_SIMULATOR='+identifier+'\n')
           PY
       - name: Boot selected simulator before tests
         if: matrix.sdk == 'iphonesimulator'
@@ -91,17 +104,21 @@ jobs:
       - name: Test actual WebKit bridge and pixel rendering
         timeout-minutes: 20
         if: matrix.sdk == 'iphonesimulator'
+        env:
+          ZEUS_RUN_COMIX_LIVE_SMOKE: ${{ inputs.run_live_comix_smoke }}
         run: |
+          set -euo pipefail
+          if [ "${ZEUS_RUN_COMIX_LIVE_SMOKE:-false}" = "true" ]; then DEFAULT_TEST_ALLOWANCE=180; MAX_TEST_ALLOWANCE=240; else DEFAULT_TEST_ALLOWANCE=90; MAX_TEST_ALLOWANCE=120; fi
           set -o pipefail
-          xcodebuild -project ZEUSNext.xcodeproj -scheme ZEUSNext -sdk iphonesimulator -destination "platform=iOS Simulator,id=$COMIC_SIMULATOR" -derivedDataPath "$RUNNER_TEMP/ZeusComicSim" -resultBundlePath results/comic.xcresult -only-testing:ZEUSNextTests/NativeComicTranslationTests -only-testing:ZEUSNextTests/BrowserCoreTests/testPersistKeepsPrimaryTabWhenSecondaryPaneIsFocused -only-testing:ZEUSNextTests/BrowserCoreTests/testGalleryImageDownloadEnforcesSizeLimitBeforeAndDuringTransfer -only-testing:ZEUSNextTests/BrowserCoreTests/testAIImageAttachmentRejectsExcessivePixelCountsAndDimensions -only-testing:ZEUSNextTests/BrowserCoreTests/testAIAttachmentRejectsOversizedFileBeforeImageInspection -parallel-testing-enabled NO -test-timeouts-enabled YES -default-test-execution-time-allowance 90 -maximum-test-execution-time-allowance 120 test CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- 2>&1 | tee results/simulator.log
+          xcodebuild -project ZEUSNext.xcodeproj -scheme ZEUSNext -sdk iphonesimulator -destination "platform=iOS Simulator,id=$COMIC_SIMULATOR" -derivedDataPath "$RUNNER_TEMP/ZeusComicSim" -resultBundlePath results/comic.xcresult -only-testing:ZEUSNextTests/NativeComicTranslationTests -only-testing:ZEUSNextTests/BrowserCoreTests/testPersistKeepsPrimaryTabWhenSecondaryPaneIsFocused -only-testing:ZEUSNextTests/BrowserCoreTests/testGalleryImageDownloadEnforcesSizeLimitBeforeAndDuringTransfer -only-testing:ZEUSNextTests/BrowserCoreTests/testAIImageAttachmentRejectsExcessivePixelCountsAndDimensions -only-testing:ZEUSNextTests/BrowserCoreTests/testAIAttachmentRejectsOversizedFileBeforeImageInspection -parallel-testing-enabled NO -test-timeouts-enabled YES -default-test-execution-time-allowance "$DEFAULT_TEST_ALLOWANCE" -maximum-test-execution-time-allowance "$MAX_TEST_ALLOWANCE" test CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- 2>&1 | tee results/simulator.log
       - name: Collect simulator diagnostics
         if: always() && matrix.sdk == 'iphonesimulator'
         timeout-minutes: 2
         continue-on-error: true
         run: |
-          xcrun simctl io "$COMIC_SIMULATOR" screenshot results/simulator.png || true
+          if [ "${{ inputs.run_live_comix_smoke }}" != "true" ]; then xcrun simctl io "$COMIC_SIMULATOR" screenshot results/simulator.png || true; else echo 'Screenshot omitted for live chapter privacy.'; fi
           xcrun simctl spawn "$COMIC_SIMULATOR" launchctl list > results/processes.log || true
-          xcrun simctl spawn "$COMIC_SIMULATOR" log show --last 8m --style compact --predicate 'process == "ZEUSNext" OR process == "xctest" OR subsystem CONTAINS "testmanager"' > results/system.log || true
+          if [ "${{ inputs.run_live_comix_smoke }}" = "true" ]; then echo 'System log omitted for live chapter URL privacy.' > results/system.log; else xcrun simctl spawn "$COMIC_SIMULATOR" log show --last 8m --style compact --predicate 'process == "ZEUSNext" OR process == "xctest" OR subsystem CONTAINS "testmanager"' > results/system.log || true; fi
       - name: Export exact revision and result summary
         if: always()
         run: |

@@ -73,7 +73,18 @@ struct ComicSettingsSheet:View {
 struct ComicTranslationCard:View{
     @ObservedObject var session:ComicTranslation
     let settings:()->Void
-    var body:some View{if session.active{VStack(alignment:.leading,spacing:6){HStack{Image(systemName:"character.viewfinder");Text(session.running ? session.stage:"ترجمة الصور · \(session.completed) منطقة").font(.subheadline);Spacer();if session.running{ProgressView();Button("إيقاف"){session.pause()}}else{Button("متابعة"){session.start()}};Button("الأصل"){Task{await session.restore()}};Button(action:settings){Image(systemName:"slider.horizontal.3")}};if let error=session.error{Text(error).font(.caption).textSelection(.enabled)};if let notice=session.storageNotice{Text(notice).font(.caption)}}.padding(12).background(.regularMaterial,in:RoundedRectangle(cornerRadius:16)).padding(.horizontal,12).padding(.bottom,8).frame(maxWidth:700).environment(\.layoutDirection,.rightToLeft).accessibilityIdentifier("imageTranslationCard")}}
+    var body:some View{if session.active{VStack(alignment:.leading,spacing:8){
+        HStack(spacing:8){Image(systemName:"character.viewfinder");Text(session.cardStatus).font(.subheadline).lineLimit(2).fixedSize(horizontal:false,vertical:true);Spacer(minLength:8);if session.running{ProgressView()}}
+        if let error=session.error{Text(error).font(.caption).textSelection(.enabled).foregroundStyle(.red)}
+        if let notice=session.storageNotice{Text(notice).font(.caption)}
+        HStack(spacing:14){
+            if session.running{Button("إيقاف",systemImage:"pause.fill"){session.pause()}}
+            else{Button(session.paused ? "متابعة":"إعادة الفحص",systemImage:session.paused ? "play.fill":"arrow.clockwise"){session.start()}}
+            Spacer(minLength:4)
+            Button("الأصل",systemImage:"arrow.uturn.backward"){Task{await session.restore()}}
+            Button(action:settings){Label("الإعدادات",systemImage:"slider.horizontal.3")}
+        }
+    }.padding(12).background(.regularMaterial,in:RoundedRectangle(cornerRadius:16)).padding(.horizontal,12).padding(.bottom,8).frame(maxWidth:700).environment(\.layoutDirection,.rightToLeft).accessibilityIdentifier("imageTranslationCard")}}
 }
 @MainActor enum ComicFonts{
     static let root=ComicModelStore.root.appendingPathComponent("Fonts")

@@ -20,6 +20,7 @@ import Darwin
     @Published var running=false
     @Published var paused=false
     @Published var completed=0
+    @Published var noTextRegions=0
     private(set) var ocrRuns=0
     private(set) var imageFallbackCount=0
     @Published var stage=""
@@ -40,8 +41,19 @@ import Darwin
     private var resolvedScripts:[String:(String,Int)]=[:]
     private var observer:NSObjectProtocol?
     var preferences:ComicPreferences{model?.data.settings.comicTranslation ?? ComicPreferences()}
+    var cardStatus:String{
+        if running{return stage.isEmpty ? "جارٍ فحص الصور" : stage}
+        if paused{return "الفحص متوقف مؤقتًا · \(completed) منطقة"}
+        if error != nil{return completed>0 ? "نجاح جزئي · \(completed) منطقة" : "تعذّر إكمال الترجمة"}
+        if completed>0{return "اكتمل الفحص الحالي · \(completed) منطقة"}
+        if noTextRegions>0{return "لم يُعثر على حوار في الصور الحالية"}
+        return "بانتظار الصور"
+    }
     init(model:BrowserModel,tab:BrowserTab){self.model=model;self.tab=tab;super.init();observer=NotificationCenter.default.addObserver(forName:UIApplication.didReceiveMemoryWarningNotification,object:nil,queue:.main){[weak self]_ in Task{@MainActor in self?.pause();await ComicOCR.shared.purge();await ComicPaddle.shared.purge();await ComicLocalTranslator.shared.unload()}}}
     deinit{if let observer{NotificationCenter.default.removeObserver(observer)}}
+    static func optionalContext<T>(_ label:String,operation:()async throws->T)async throws->T?{
+        do{return try await operation()}catch is CancellationError{throw CancellationError()}catch{try Task.checkCancellation();let detail=error as NSError;NSLog("[ZEUS Comic] stage=\(label)-context result=unavailable domain=\(detail.domain) code=\(detail.code)");return nil}
+    }
     func attach(to view:WKWebView,installScript:Bool=true){
         ComicMessageRouter.shared.pages.setObject(self,forKey:view)
         view.configuration.userContentController.removeScriptMessageHandler(forName:"zeusComic",contentWorld:Self.world)
@@ -63,10 +75,10 @@ import Darwin
         return try await view.callAsyncJavaScript(code,arguments:args,in:frame?.isMainFrame==true ? nil:frame,contentWorld:Self.world) ?? NSNull()
     }
     func start(){guard let model,let tab,!tab.isHome,!model.requiresUnlock,model.profile.id==tab.profileID else{return};ComicFonts.registerAll();active=true;paused=false;error=nil;failed.removeAll();schedule()}
-    func navigationStarted(){pause();active=false;completed=0;ocrRuns=0;imageFallbackCount=0;done.removeAll();failed.removeAll();frames.removeAll();documents.removeAll();readings.removeAll();textResults.removeAll();speechTexts.removeAll();fetched.removeAll();resolvedScripts.removeAll();error=nil}
+    func navigationStarted(){pause();active=false;completed=0;noTextRegions=0;ocrRuns=0;imageFallbackCount=0;done.removeAll();failed.removeAll();frames.removeAll();documents.removeAll();readings.removeAll();textResults.removeAll();speechTexts.removeAll();fetched.removeAll();resolvedScripts.removeAll();error=nil}
     func pause(){paused=true;epoch=UUID();work?.cancel();work=nil;running=false;pending=false;for frame in frames.values{Task{_ = try? await call("globalThis.zeusComic?.releaseAll?.()",frame:frame)}}}
     func becameVisible(){if active||preferences.automatic{start()}}
-    func restore()async{pause();active=false;for frame in frames.values{_ = try? await call("globalThis.zeusComic?.restore()",frame:frame)};_ = try? await call("globalThis.zeusComic?.restore()",frame:nil);done.removeAll();failed.removeAll();completed=0;error=nil}
+    func restore()async{pause();active=false;for frame in frames.values{_ = try? await call("globalThis.zeusComic?.restore()",frame:frame)};_ = try? await call("globalThis.zeusComic?.restore()",frame:nil);done.removeAll();failed.removeAll();completed=0;noTextRegions=0;error=nil}
     private func schedule(){if running{pending=true;return};guard active && !paused else{return};let ticket=epoch;running=true
         work=Task{[weak self]in guard let self else{return};defer{if epoch==ticket{running=false;work=nil;if pending{pending=false;schedule()}}}
             do{
@@ -114,14 +126,18 @@ import Darwin
                     var before:CGImage?,after:CGImage?
                     let contextRows=max(0,min(256,(8_000_000/center.width-center.height)/2))
                     if contextRows>0,region.y==0,let previous=neighbours.before{
-                        let height=min(previous.height,max(1,contextRows*previous.width/center.width)),area=ComicRegion(y:previous.height-height,width:previous.width,height:height,coreTop:0,coreBottom:height)
-                        let context=try await capture(previous,region:area,frame:frame,ticket:ticket)
-                        before=try await Task.detached{try ComicPixels.decode(context)}.value
+                        before=try await Self.optionalContext("previous"){
+                            let height=min(previous.height,max(1,contextRows*previous.width/center.width)),area=ComicRegion(y:previous.height-height,width:previous.width,height:height,coreTop:0,coreBottom:height)
+                            let context=try await capture(previous,region:area,frame:frame,ticket:ticket)
+                            return try await Task.detached{try ComicPixels.decode(context)}.value
+                        }
                     }
                     if contextRows>0,region.y+region.height==candidate.height,let next=neighbours.after{
-                        let height=min(next.height,max(1,contextRows*next.width/center.width)),area=ComicRegion(y:0,width:next.width,height:height,coreTop:0,coreBottom:height)
-                        let context=try await capture(next,region:area,frame:frame,ticket:ticket)
-                        after=try await Task.detached{try ComicPixels.decode(context)}.value
+                        after=try await Self.optionalContext("next"){
+                            let height=min(next.height,max(1,contextRows*next.width/center.width)),area=ComicRegion(y:0,width:next.width,height:height,coreTop:0,coreBottom:height)
+                            let context=try await capture(next,region:area,frame:frame,ticket:ticket)
+                            return try await Task.detached{try ComicPixels.decode(context)}.value
+                        }
                     }
                     let window=try await Task.detached{try ComicWindow.join(center,before:before,after:after)}.value
                     let image=window.image,offset=window.offset
@@ -142,7 +158,7 @@ import Darwin
                     // A speech touching this core is rendered from its complete context,
                     // then clipped to this core. Its neighbour renders the other half.
                     let core=reading.speeches.filter{$0.rect.maxY>CGFloat(region.coreTop+offset)&&$0.rect.minY<CGFloat(region.coreBottom+offset)}
-                    if core.isEmpty{done.insert(job);_ = try await call("zeusComic.release(id)",args:["id":candidate.id],frame:frame);continue}
+                    if core.isEmpty{noTextRegions+=1;done.insert(job);_ = try await call("zeusComic.release(id)",args:["id":candidate.id],frame:frame);continue}
                     stage="ترجمة الحوار"
                     let segments=core.map{TranslationSegment(id:$0.id,text:$0.text)}
                     let translationKey=readingKey+"|\(translationMark)"
@@ -305,7 +321,7 @@ private enum ComicImageFetchPolicy{
         let parts=value.split(separator:".",omittingEmptySubsequences:false),octets=parts.compactMap{Int($0)}
         if parts.count==4,octets.count==4,octets.allSatisfy({(0...255).contains($0)}){return isPublicIPv4(value)}
         if value.range(of:#"^(?:0x[0-9a-f]+|[0-9]+)(?:\.(?:0x[0-9a-f]+|[0-9]+))*$"#,options:.regularExpression) != nil{return false}
-        return value.contains(".")&&!value.hasSuffix(".")
+        return value.contains(".") && !value.hasSuffix(".")
     }
     private static func isPublicIPv4(_ value:String)->Bool{
         let parts=value.split(separator:".",omittingEmptySubsequences:false),octets=parts.compactMap{Int($0)}
