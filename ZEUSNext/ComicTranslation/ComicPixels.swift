@@ -23,66 +23,156 @@ enum ComicPixels {
         let image=try decode(data);guard image.width==region.width,expectedHeight==nil||image.height==expectedHeight,let crop=image.cropping(to:region.rect)else{throw ComicFailure.message("تعذّر فك المنطقة المطلوبة.")};return crop
     }
     static func png(_ image:CGImage)throws->Data{let output=NSMutableData();guard let destination=CGImageDestinationCreateWithData(output,"public.png" as CFString,1,nil)else{throw ComicFailure.message("تعذّر ترميز الصورة.")};CGImageDestinationAddImage(destination,image,nil);guard CGImageDestinationFinalize(destination)else{throw ComicFailure.message("فشل ترميز الصورة.")};return output as Data}
+
+    private struct EraseLine { let rect:CGRect; let vertical:Bool }
+    private struct RGB { let r:CGFloat; let g:CGFloat; let b:CGFloat }
+    private struct Estimate { let color:RGB }
+    private struct Prepared { let speech:ComicSpeech; let area:CGRect; let layout:TextLayout }
+
     static func render(_ image:CGImage,speeches:[ComicSpeech],translations:[TranslationSegment],target:String,fontName:String?,fontScale:Double,textColor:String? = nil)throws->CGImage{
         guard let context=context(width:image.width,height:image.height),let pixels=rgba(image,width:image.width,height:image.height)else{throw ComicFailure.message("ذاكرة غير كافية للرسم.")}
         context.draw(image,in:CGRect(x:0,y:0,width:image.width,height:image.height))
-        let translated=Dictionary(uniqueKeysWithValues:translations.map{($0.id,$0.text)})
-        // CG image coordinates are top-left. CoreGraphics/CoreText are bottom-left.
-        for speech in speeches {
+        var translated:[String:String]=[:]
+        for segment in translations{translated[segment.id]=segment.text}
+        var prepared:[Prepared]=[]
+        for speech in speeches{
             guard let text=translated[speech.id],!text.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty else{continue}
+            let alreadyOwned = !speech.lines.isEmpty && speech.lines.allSatisfy{line in prepared.contains{item in item.speech.lines.contains{sameLine($0,line)}}}
+            if alreadyOwned{continue}
             let pad=speech.balloon ? 0:max(2,min(speech.rect.width,speech.rect.height)*0.08)
             let area=speech.rect.insetBy(dx:-pad,dy:-pad).intersection(CGRect(x:0,y:0,width:image.width,height:image.height)).integral
             guard area.width>3,area.height>3 else{continue}
-            let background=backgroundColor(pixels,width:image.width,height:image.height,rect:area)
-            // Prepare layout before erasing any source text. Failed fit leaves the original.
-            guard let layout=layout(text,rect:area.insetBy(dx:2,dy:2),target:target,fontName:fontName,fontScale:fontScale)else{throw ComicFailure.message("لم يتسع النص للفقاعة؛ بقي الأصل دون مسح.")}
-            // Erase foreground components only inside detected source lines. Uniform
-            // fills are confined to the text masks; balloon borders remain untouched.
-            clean(context,pixels:pixels,width:image.width,height:image.height,speech:speech,background:background)
+            let sourceHeight=median(speech.lines.map{speech.vertical ? $0.rect.width:$0.rect.height})
+            // Measure every layout before touching the source; a failed fit never erases it.
+            guard let layout=layout(text,rect:area.insetBy(dx:2,dy:2),target:target,fontName:fontName,fontScale:fontScale,sourceLineHeight:sourceHeight)else{throw ComicFailure.message("لم يتسع النص للفقاعة؛ بقي الأصل دون مسح.")}
+            prepared.append(Prepared(speech:speech,area:area,layout:layout))
+        }
+        guard let data=context.data else{throw ComicFailure.message("تعذّر الوصول إلى ذاكرة الرسم.")}
+        let eraseLines=prepared.flatMap{item in item.speech.lines.map{line in EraseLine(rect:line.rect,vertical:item.speech.vertical)}}
+        clean(data.assumingMemoryBound(to:UInt8.self),pixels:pixels,width:image.width,height:image.height,lines:eraseLines)
+        for item in prepared{
+            let background=backgroundColor(UnsafePointer(data.assumingMemoryBound(to:UInt8.self)),width:image.width,height:image.height,rect:item.area)
             let automatic=background.0*0.2126+background.1*0.7152+background.2*0.0722>0.5 ? CGColor(gray:0.04,alpha:1):CGColor(gray:0.98,alpha:1)
             let color=textColor.flatMap(Self.color) ?? automatic
             context.saveGState();context.setFillColor(color);context.textMatrix = .identity
-            let box=CGRect(x:area.minX+2,y:CGFloat(image.height)-area.maxY+2+(area.height-4-layout.height)/2,width:area.width-4,height:layout.height)
-            let attributed=NSMutableAttributedString(attributedString:layout.text);attributed.addAttribute(NSAttributedString.Key(kCTForegroundColorAttributeName as String),value:color,range:NSRange(location:0,length:attributed.length))
+            // CG image coordinates are top-left. CoreGraphics/CoreText are bottom-left.
+            let box=CGRect(x:item.area.minX+2,y:CGFloat(image.height)-item.area.maxY+2+(item.area.height-4-item.layout.height)/2,width:item.area.width-4,height:item.layout.height)
+            let attributed=NSMutableAttributedString(attributedString:item.layout.text);attributed.addAttribute(NSAttributedString.Key(kCTForegroundColorAttributeName as String),value:color,range:NSRange(location:0,length:attributed.length))
             let frame=CTFramesetterCreateFrame(CTFramesetterCreateWithAttributedString(attributed),CFRange(),CGPath(rect:box,transform:nil),nil);CTFrameDraw(frame,context);context.restoreGState()
         }
         guard let result=context.makeImage()else{throw ComicFailure.message("فشل رسم النص.")};return result
     }
+
+    /// Runs the production cleanup without drawing a translation; used for pixel-level regression tests.
+    static func cleanup(_ image:CGImage,speeches:[ComicSpeech])throws->CGImage{
+        guard let context=context(width:image.width,height:image.height),let pixels=rgba(image,width:image.width,height:image.height)else{throw ComicFailure.message("ذاكرة غير كافية لتنظيف الصورة.")}
+        context.draw(image,in:CGRect(x:0,y:0,width:image.width,height:image.height))
+        guard let data=context.data else{throw ComicFailure.message("تعذّر الوصول إلى ذاكرة التنظيف.")}
+        let lines=speeches.flatMap{speech in speech.lines.map{line in EraseLine(rect:line.rect,vertical:speech.vertical)}}
+        clean(data.assumingMemoryBound(to:UInt8.self),pixels:pixels,width:image.width,height:image.height,lines:lines)
+        guard let result=context.makeImage()else{throw ComicFailure.message("فشل إنشاء الصورة المنظفة.")};return result
+    }
+
     static func color(_ hex:String)->CGColor?{let value=hex.replacingOccurrences(of:"#",with:"");guard value.count==6,let n=UInt32(value,radix:16)else{return nil};return CGColor(red:CGFloat((n>>16)&255)/255,green:CGFloat((n>>8)&255)/255,blue:CGFloat(n&255)/255,alpha:1)}
     struct TextLayout{var text:NSAttributedString;var height:CGFloat;var size:CGFloat}
-    static func layout(_ text:String,rect:CGRect,target:String,fontName:String?,fontScale:Double)->TextLayout?{
+    static func layout(_ text:String,rect:CGRect,target:String,fontName:String?,fontScale:Double,sourceLineHeight:CGFloat?=nil)->TextLayout?{
         guard rect.width>2,rect.height>2 else{return nil}
         let style=NSMutableParagraphStyle();style.alignment = .center;style.baseWritingDirection=TranslationPreferences.rtl(target) ? .rightToLeft:.leftToRight;style.lineBreakMode = .byWordWrapping
-        var low:CGFloat=6,high=min(96,rect.height),best:TextLayout?
-        for _ in 0..<9{let size=(low+high)/2,font=CTFontCreateWithName((fontName ?? "ArialMT")as CFString,size,nil)
+        let sourceCap=sourceLineHeight.map{max(8,$0*1.32)} ?? 96
+        let maximum=min(CGFloat(96),min(rect.height,sourceCap))
+        guard maximum>=6 else{return nil}
+        var low:CGFloat=6,high=maximum,best:TextLayout?
+        for _ in 0..<12{let size=(low+high)/2,font=CTFontCreateWithName((fontName ?? "ArialMT")as CFString,size,nil)
             let value=NSAttributedString(string:text,attributes:[NSAttributedString.Key(kCTFontAttributeName as String):font,.paragraphStyle:style])
             let setter=CTFramesetterCreateWithAttributedString(value);var fit=CFRange();let measured=CTFramesetterSuggestFrameSizeWithConstraints(setter,CFRange(),nil,CGSize(width:rect.width,height:CGFloat.greatestFiniteMagnitude),&fit)
             if measured.height<=rect.height && measured.width<=rect.width+0.5 && fit.length==value.length{best=TextLayout(text:value,height:ceil(measured.height),size:size);low=size}else{high=size}
         }
         guard let best else{return nil}
-        let chosen=min(best.size,max(6,best.size*CGFloat(min(1.5,max(0.5,fontScale)))*0.8))
+        // The fit search already found the largest safe size. User scale may reduce it, not exceed it.
+        let scale=CGFloat(min(1.5,max(0.5,fontScale)))
+        let chosen=max(6,min(best.size,best.size*scale))
         let font=CTFontCreateWithName((fontName ?? "ArialMT")as CFString,chosen,nil)
-        let text=NSAttributedString(string:text,attributes:[NSAttributedString.Key(kCTFontAttributeName as String):font,.paragraphStyle:style])
-        let measured=CTFramesetterSuggestFrameSizeWithConstraints(CTFramesetterCreateWithAttributedString(text),CFRange(),nil,CGSize(width:rect.width,height:CGFloat.greatestFiniteMagnitude),nil)
-        return TextLayout(text:text,height:ceil(measured.height),size:chosen)
+        let fitted=NSAttributedString(string:text,attributes:[NSAttributedString.Key(kCTFontAttributeName as String):font,.paragraphStyle:style])
+        let measured=CTFramesetterSuggestFrameSizeWithConstraints(CTFramesetterCreateWithAttributedString(fitted),CFRange(),nil,CGSize(width:rect.width,height:CGFloat.greatestFiniteMagnitude),nil)
+        guard measured.height<=rect.height+0.5 else{return nil}
+        return TextLayout(text:fitted,height:ceil(measured.height),size:chosen)
     }
-    private static func backgroundColor(_ pixels:[UInt8],width:Int,height:Int,rect:CGRect)->(CGFloat,CGFloat,CGFloat){
-        var bins:[Int:(Int,Int,Int,Int)]=[:]
-        let x0=max(0,Int(rect.minX)-3),x1=min(width-1,Int(rect.maxX)+3),y0=max(0,Int(rect.minY)-3),y1=min(height-1,Int(rect.maxY)+3)
+
+    private static func median(_ values:[CGFloat])->CGFloat?{
+        let sorted=values.filter{$0.isFinite&&$0>0}.sorted();guard !sorted.isEmpty else{return nil}
+        return sorted[sorted.count/2]
+    }
+    private static func sameLine(_ a:ComicLine,_ b:ComicLine)->Bool{
+        let intersection=a.rect.intersection(b.rect);guard !intersection.isNull else{return false}
+        return intersection.width*intersection.height/max(1,min(a.rect.width*a.rect.height,b.rect.width*b.rect.height))>0.72
+    }
+
+    private static func backgroundColor(_ pixels:UnsafePointer<UInt8>,width:Int,height:Int,rect:CGRect)->(CGFloat,CGFloat,CGFloat){
+        let x0=max(0,Int(rect.minX)+2),x1=min(width-1,Int(rect.maxX)-2),y0=max(0,Int(rect.minY)+2),y1=min(height-1,Int(rect.maxY)-2)
         guard x1>=x0,y1>=y0 else{return(1,1,1)}
-        for y in y0...y1{for x in x0...x1 where x<x0+3||x>x1-3||y<y0+3||y>y1-3{let i=(y*width+x)*4,r=Int(pixels[i]),g=Int(pixels[i+1]),b=Int(pixels[i+2]),key=(r/32)*64+(g/32)*8+b/32,old=bins[key] ?? (0,0,0,0);bins[key]=(old.0+r,old.1+g,old.2+b,old.3+1)}}
-        guard let value=bins.values.max(by:{$0.3<$1.3}),value.3>0 else{return(1,1,1)}
-        return(CGFloat(value.0)/CGFloat(value.3*255),CGFloat(value.1)/CGFloat(value.3*255),CGFloat(value.2)/CGFloat(value.3*255))
+        let stepX=max(1,(x1-x0)/8),stepY=max(1,(y1-y0)/8)
+        var samples:[(CGFloat,CGFloat,CGFloat,CGFloat)]=[]
+        for y in stride(from:y0,through:y1,by:stepY){for x in stride(from:x0,through:x1,by:stepX){let i=(y*width+x)*4,r=CGFloat(pixels[i])/255,g=CGFloat(pixels[i+1])/255,b=CGFloat(pixels[i+2])/255,l=r*0.2126+g*0.7152+b*0.0722;samples.append((r,g,b,l))}}
+        guard !samples.isEmpty else{return(1,1,1)}
+        samples.sort{$0.3<$1.3};let sample=samples[samples.count/2];return(sample.0,sample.1,sample.2)
     }
-    private static func clean(_ context:CGContext,pixels:[UInt8],width:Int,height:Int,speech:ComicSpeech,background:(CGFloat,CGFloat,CGFloat)){
-        let color=CGColor(red:background.0,green:background.1,blue:background.2,alpha:1);context.setFillColor(color)
-        for line in speech.lines{
-            let box=line.rect.insetBy(dx:-1,dy:-1).integral.intersection(CGRect(x:0,y:0,width:width,height:height));guard !box.isNull else{continue}
-            for y in Int(box.minY)..<Int(box.maxY){var start:Int?
-                for x in Int(box.minX)..<Int(box.maxX){let i=(y*width+x)*4;let distance=abs(CGFloat(pixels[i])/255-background.0)+abs(CGFloat(pixels[i+1])/255-background.1)+abs(CGFloat(pixels[i+2])/255-background.2)
-                    if distance>0.3{if start==nil{start=x}}else if let begin=start{context.fill(CGRect(x:max(Int(box.minX),begin-1),y:height-y-2,width:x-begin+2,height:3));start=nil}
-                };if let begin=start{context.fill(CGRect(x:begin,y:height-y-2,width:Int(box.maxX)-begin,height:3))}
-            }
+
+    private static func clean(_ canvas:UnsafeMutablePointer<UInt8>,pixels:[UInt8],width:Int,height:Int,lines:[EraseLine]){
+        guard width>0,height>0,!lines.isEmpty,pixels.count>=width*height*4 else{return}
+        let count=width*height,imageRect=CGRect(x:0,y:0,width:width,height:height)
+        // 0 is unmasked, 1 is a horizontal glyph line, 2 is a vertical line.
+        var hard=[UInt8](repeating:0,count:count),opacity=[UInt8](repeating:0,count:count)
+        var maskMinX=width,maskMinY=height,maskMaxX=0,maskMaxY=0
+        for line in lines{
+            guard line.rect.width>0,line.rect.height>0 else{continue}
+            let glyph= line.vertical ? min(line.rect.width,line.rect.height):line.rect.height
+            let pad=max(2,min(24,glyph*0.34)),inner=max(1,pad*0.56),feather=max(1,pad-inner)
+            let core=line.rect.insetBy(dx:-inner,dy:-inner),outer=line.rect.insetBy(dx:-pad,dy:-pad).intersection(imageRect).integral
+            guard !outer.isNull,outer.width>0,outer.height>0 else{continue}
+            let x0=max(0,Int(outer.minX)),x1=min(width,Int(outer.maxX)),y0=max(0,Int(outer.minY)),y1=min(height,Int(outer.maxY))
+            guard x1>x0,y1>y0 else{continue}
+            maskMinX=min(maskMinX,x0);maskMaxX=max(maskMaxX,x1);maskMinY=min(maskMinY,y0);maskMaxY=max(maskMaxY,y1)
+            for y in y0..<y1{for x in x0..<x1{
+                let index=y*width+x
+                let point=CGPoint(x:CGFloat(x)+0.5,y:CGFloat(y)+0.5)
+                let dx=max(0,max(core.minX-point.x,point.x-core.maxX)),dy=max(0,max(core.minY-point.y,point.y-core.maxY)),distance=max(dx,dy)
+                let strength=UInt8((max(0,min(1,1-distance/feather))*255).rounded())
+                if strength>=opacity[index]{opacity[index]=strength;hard[index]=line.vertical ? 2:1}
+            }}
         }
+        guard maskMinX<maskMaxX,maskMinY<maskMaxY,opacity.contains(where:{$0>0})else{return}
+        let maxSearch=min(192,max(24,Int(lines.map{$0.vertical ? min($0.rect.width,$0.rect.height):$0.rect.height}.max() ?? 24)*3))
+        func sample(_ x:Int,_ y:Int,_ dx:Int,_ dy:Int)->(RGB,Int)?{
+            for distance in 1...maxSearch{
+                let sx=x+dx*distance,sy=y+dy*distance
+                guard sx>=0,sx<width,sy>=0,sy<height else{return nil}
+                let maskIndex=sy*width+sx
+                if hard[maskIndex]==0{let i=maskIndex*4;return(RGB(r:CGFloat(pixels[i]),g:CGFloat(pixels[i+1]),b:CGFloat(pixels[i+2])),distance)}
+            }
+            return nil
+        }
+        func estimate(_ first:(RGB,Int)?,_ second:(RGB,Int)?)->Estimate?{
+            guard let first=first else{guard let second=second else{return nil};return Estimate(color:second.0)}
+            guard let second=second else{return Estimate(color:first.0)}
+            let total=CGFloat(first.1+second.1),t=CGFloat(first.1)/total
+            let color=RGB(r:first.0.r*(1-t)+second.0.r*t,g:first.0.g*(1-t)+second.0.g*t,b:first.0.b*(1-t)+second.0.b*t)
+            return Estimate(color:color)
+        }
+        for y in maskMinY..<maskMaxY{for x in maskMinX..<maskMaxX{
+            let index=y*width+x,alpha=opacity[index];guard alpha>0 else{continue}
+            let top=sample(x,y,0,-1),bottom=sample(x,y,0,1),left=sample(x,y,-1,0),right=sample(x,y,1,0)
+            let alongY=estimate(top,bottom),alongX=estimate(left,right)
+            let preferred=hard[index]==2 ? alongX:alongY,secondary=hard[index]==2 ? alongY:alongX
+            let prediction:RGB
+            if let preferred,let secondary{prediction=RGB(r:preferred.color.r*0.82+secondary.color.r*0.18,g:preferred.color.g*0.82+secondary.color.g*0.18,b:preferred.color.b*0.82+secondary.color.b*0.18)}
+            else if let preferred{prediction=preferred.color}
+            else if let secondary{prediction=secondary.color}
+            else{continue}
+            let i=index*4,a=CGFloat(alpha)/255
+            canvas[i]=UInt8(max(0,min(255,(CGFloat(pixels[i])*(1-a)+prediction.r*a).rounded())))
+            canvas[i+1]=UInt8(max(0,min(255,(CGFloat(pixels[i+1])*(1-a)+prediction.g*a).rounded())))
+            canvas[i+2]=UInt8(max(0,min(255,(CGFloat(pixels[i+2])*(1-a)+prediction.b*a).rounded())))
+            canvas[i+3]=pixels[i+3]
+        }}
     }
 }

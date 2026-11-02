@@ -115,7 +115,10 @@ enum ComicGeometry {
                     let verticalOverlap=min(line.rect.maxY,last.rect.maxY)-max(line.rect.minY,last.rect.minY)
                     return columnGap<max(line.rect.width,last.rect.width)*1.1 && verticalOverlap>min(line.rect.height,last.rect.height)*0.6
                 }
-                return gap >= -min(line.rect.height,last.rect.height)*0.5 && gap<max(line.rect.height,last.rect.height)*1.1 && overlap>min(line.rect.width,last.rect.width)*0.4
+                let lineHeight=max(line.rect.height,last.rect.height),minimumHeight=min(line.rect.height,last.rect.height)
+                let minimumWidth=min(line.rect.width,last.rect.width),centerOffset=abs(line.rect.midX-last.rect.midX)
+                let centered=centerOffset<=max(lineHeight*0.65,minimumWidth*0.18)
+                return gap >= -minimumHeight*0.45 && gap<lineHeight*1.6 && (overlap>minimumWidth*0.22 || centered)
             }
             if let i=compatible.min(by:{abs(groups[$0].last!.rect.midY-line.rect.midY)<abs(groups[$1].last!.rect.midY-line.rect.midY)}){groups[i].append(line);continue}
             groups.append([line])

@@ -97,7 +97,7 @@ import Darwin
         let owner=model.profile.id,prefs=preferences,translation=preferences.resolvedTranslation(model.data.settings)
         let provider=model.data.settings.aiProviders?.first{$0.id==translation.providerID}
         let translationMark=ComicIdentity.settings(prefs,translation:translation,provider:provider)+"|"+prefs.engine.rawValue+"|local:\(prefs.localModel)|"+ComicLocalTranslator.modelIdentity
-        let mark=translationMark+"|"+(prefs.fontName ?? "default")+"|\(prefs.fontScale)|"+(prefs.textColor ?? "auto")
+        let mark=translationMark+"|renderer-v3|"+(prefs.fontName ?? "default")+"|\(prefs.fontScale)|"+(prefs.textColor ?? "auto")
         let persistent=translation.keepsTranslations && !model.profile.isPrivate
         let generation=try await call("return zeusComic.resume(mark)",args:["mark":mark],frame:frame)as? Int ?? 0
         let value=try await call("return zeusComic.scan(wake)",args:["wake":prefs.readAhead],frame:frame)
@@ -142,7 +142,7 @@ import Darwin
                     let window=try await Task.detached{try ComicWindow.join(center,before:before,after:after)}.value
                     let image=window.image,offset=window.offset
                     let imageHash=try await Task.detached{ComicIdentity.hash(try ComicPixels.png(image))}.value
-                    let readingKey=imageHash+"|ocr-v3|\(prefs.source)|\(prefs.mode.rawValue)"
+                    let readingKey=imageHash+"|ocr-v4|\(prefs.source)|\(prefs.mode.rawValue)"
                     stage="قراءة الفقاعات"
                     let reading:ComicReading
                     if let saved=readings[readingKey]{reading=saved}
@@ -173,7 +173,7 @@ import Darwin
                     }
                     if textResults.count>=64{textResults.removeAll()};textResults[translationKey]=translated
                     try valid(ticket);stage="تنظيف الفقاعات ورسم العربية"
-                    let renderedKey=translationKey+"|render-v2|\(prefs.fontName ?? "default")|\(prefs.fontScale)|\(prefs.textColor ?? "auto")"
+                    let renderedKey=translationKey+"|render-v3|\(prefs.fontName ?? "default")|\(prefs.fontScale)|\(prefs.textColor ?? "auto")"
                     let rendered:Data
                     if persistent,let stored=await ComicMemory.shared.data(profile:owner,layer:.rendered,key:renderedKey){rendered=stored}
                     else{rendered=try await Task.detached{let drawn=try ComicPixels.render(image,speeches:core,translations:translated,target:translation.target,fontName:prefs.fontName,fontScale:prefs.fontScale,textColor:prefs.textColor)

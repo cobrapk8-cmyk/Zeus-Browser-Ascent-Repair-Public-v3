@@ -4,21 +4,40 @@ import CoreGraphics
 /// Recover closed, nearly uniform balloon interiors around recognised lines.
 /// The search is bounded; textured/open regions keep their OCR geometry.
 enum ComicBalloons {
-    static func speeches(_ lines:[ComicLine],image:CGImage,source:String)->[ComicSpeech]{
+    static func speeches(_ input:[ComicLine],image:CGImage,source:String)->[ComicSpeech]{
+        let lines=uniqueLines(input)
         guard let pixels=ComicPixels.rgba(image,width:image.width,height:image.height)else{return ComicGeometry.group(lines,source:source)}
         var plates:[(CGRect,[ComicLine])]=[],unplated:[ComicLine]=[]
         for line in lines{
             guard let plate=interior(line.rect,pixels:pixels,width:image.width,height:image.height)else{unplated.append(line);continue}
             if let index=plates.firstIndex(where:{overlap($0.0,plate)>0.7}){plates[index].1.append(line)}else{plates.append((plate,[line]))}
         }
-        var result=plates.map{plate,lines->ComicSpeech in
+        // A fragmented OCR box may fail its own flood-fill even though its centre
+        // clearly lies inside a neighbouring line's already detected bubble.
+        var remaining:[ComicLine]=[]
+        for line in unplated{
+            let ranked=plates.indices.map{($0,overlap(line.rect,plates[$0].0))}.sorted{$0.1>$1.1}
+            if let best=ranked.first,best.1>0.48{plates[best.0].1.append(line)}else{remaining.append(line)}
+        }
+        var result=plates.map{plate,rawLines->ComicSpeech in
+            let lines=uniqueLines(rawLines)
             let vertical=lines.allSatisfy{$0.rect.height>$0.rect.width*1.5}
             let ordered=lines.sorted{vertical ? $0.rect.midX>$1.rect.midX:$0.rect.minY<$1.rect.minY}
             return ComicSpeech(id:"",text:ordered.map(\.text).joined(separator:vertical ? "":"\n"),lines:ordered,rect:safeRectangle(plate,pixels:pixels,width:image.width,height:image.height),vertical:vertical,balloon:true)
         }
-        result+=ComicGeometry.group(unplated,source:source)
+        result+=ComicGeometry.group(uniqueLines(remaining),source:source)
         result.sort{a,b in if abs(a.rect.minY-b.rect.minY)<min(a.rect.height,b.rect.height)*0.35{return source.hasPrefix("ja") ? a.rect.midX>b.rect.midX:a.rect.midX<b.rect.midX};return a.rect.minY<b.rect.minY}
         return result.enumerated().map{i,s in var s=s;s.id=String(i);return s}
+    }
+    private static func uniqueLines(_ lines:[ComicLine])->[ComicLine]{
+        var result:[ComicLine]=[]
+        for line in lines.sorted(by:{$0.confidence>$1.confidence}){
+            // Conflicting OCR engines sometimes return the same word twice with
+            // slightly different text. Keep the higher-confidence spatial owner.
+            if result.contains(where:{overlap($0.rect,line.rect)>0.72}){continue}
+            result.append(line)
+        }
+        return result.sorted{$0.rect.minY<$1.rect.minY}
     }
     private static func safeRectangle(_ plate:CGRect,pixels:[UInt8],width:Int,height:Int)->CGRect{
         func color(_ x:CGFloat,_ y:CGFloat)->[Int]{let x=max(0,min(width-1,Int(x))),y=max(0,min(height-1,Int(y))),i=(y*width+x)*4;return [Int(pixels[i]),Int(pixels[i+1]),Int(pixels[i+2])]}

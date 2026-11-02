@@ -54,6 +54,13 @@ import UIKit
         XCTAssertLessThanOrEqual(layout.height,90);XCTAssertGreaterThan(layout.size,6)
         XCTAssertNil(ComicPixels.color("<script>"));XCTAssertNotNil(ComicPixels.color("#163B72"))
     }
+    func testArabicFontScaleCannotExceedOriginalLetterHeight()throws{
+        let rect=CGRect(x:0,y:0,width:250,height:90)
+        let normal=try XCTUnwrap(ComicPixels.layout("أين ذهب صديقي؟",rect:rect,target:"ar",fontName:nil,fontScale:1,sourceLineHeight:18))
+        let enlarged=try XCTUnwrap(ComicPixels.layout("أين ذهب صديقي؟",rect:rect,target:"ar",fontName:nil,fontScale:1.5,sourceLineHeight:18))
+        XCTAssertLessThanOrEqual(enlarged.size,18*1.32+0.5,"Translated lettering must remain bounded by the source line height")
+        XCTAssertEqual(enlarged.size,normal.size,accuracy:0.5,"User scaling cannot enlarge Arabic beyond the measured fit")
+    }
     func testArabicLetteringChangesActualPixelsInsideTheBalloon()throws{
         let raster=renderer(CGSize(width:320,height:200)).image{context in
             UIColor.white.setFill();context.fill(CGRect(x:0,y:0,width:320,height:200))
@@ -82,10 +89,66 @@ import UIKit
         XCTAssertGreaterThan(interior.width,150);XCTAssertGreaterThan(interior.height,100)
         XCTAssertGreaterThan(interior.minX,45);XCTAssertLessThan(interior.maxX,255)
     }
+    func testBalloonGroupsFragmentedLinesAndDropsDuplicateOCR()throws{
+        let image=renderer(CGSize(width:320,height:240)).image{context in
+            UIColor.darkGray.setFill();context.fill(CGRect(x:0,y:0,width:320,height:240))
+            UIColor.white.setFill();UIBezierPath(ovalIn:CGRect(x:20,y:20,width:280,height:200)).fill()
+            ("HELLO THERE" as NSString).draw(at:CGPoint(x:88,y:78),withAttributes:[.font:UIFont.systemFont(ofSize:20),.foregroundColor:UIColor.black])
+            ("MY FRIEND" as NSString).draw(at:CGPoint(x:126,y:111),withAttributes:[.font:UIFont.systemFont(ofSize:20),.foregroundColor:UIColor.black])
+        }.cgImage!
+        let first=ComicLine(text:"HELLO THERE",confidence:0.99,rect:CGRect(x:82,y:72,width:160,height:32))
+        let duplicate=ComicLine(text:"HELLO THERE",confidence:0.40,rect:first.rect.insetBy(dx:1,dy:1))
+        let second=ComicLine(text:"MY FRIEND",confidence:0.95,rect:CGRect(x:120,y:105,width:100,height:32))
+        let speeches=ComicBalloons.speeches([first,duplicate,second],image:image,source:"en")
+        XCTAssertEqual(speeches.count,1,"OCR fragments inside one balloon should share one translation")
+        XCTAssertEqual(speeches.first?.lines.count,2,"Duplicate OCR boxes must not be translated or rendered twice")
+        XCTAssertEqual(speeches.first?.balloon,true)
+    }
+    func testRendererCleanupRemovesGlyphsAndPreservesTexturedGradient()throws{
+        let size=CGSize(width:320,height:180)
+        func paintBackground(_ context:UIGraphicsImageRendererContext){
+            let colors=[UIColor(red:0.88,green:0.82,blue:0.95,alpha:1).cgColor,UIColor(red:0.22,green:0.26,blue:0.43,alpha:1).cgColor] as CFArray
+            let gradient=CGGradient(colorsSpace:CGColorSpaceCreateDeviceRGB(),colors:colors,locations:nil)!
+            context.cgContext.drawLinearGradient(gradient,start:CGPoint(x:0,y:0),end:CGPoint(x:0,y:180),options:[])
+            for x in stride(from:0,to:320,by:16){UIColor(white:1,alpha:0.09).setFill();context.fill(CGRect(x:x,y:0,width:3,height:180))}
+        }
+        let clean=renderer(size).image{paintBackground($0)}.cgImage!
+        let marked=renderer(size).image{context in
+            paintBackground(context)
+            ("ORIGINAL" as NSString).draw(at:CGPoint(x:92,y:63),withAttributes:[.font:UIFont.boldSystemFont(ofSize:34),.foregroundColor:UIColor.black])
+        }.cgImage!
+        let line=ComicLine(text:"ORIGINAL",confidence:1,rect:CGRect(x:85,y:54,width:175,height:52))
+        let speech=ComicSpeech(id:"0",text:"ORIGINAL",lines:[line],rect:line.rect,vertical:false,balloon:false)
+        let output=try ComicPixels.cleanup(marked,speeches:[speech])
+        let expected=try XCTUnwrap(ComicPixels.rgba(clean,width:320,height:180)),actual=try XCTUnwrap(ComicPixels.rgba(output,width:320,height:180))
+        var difference=0,residualGlyphPixels=0,samples=0
+        for y in Int(line.rect.minY)..<Int(line.rect.maxY){for x in Int(line.rect.minX)..<Int(line.rect.maxX){let i=(y*320+x)*4
+            let delta=abs(Int(actual[i])-Int(expected[i]))+abs(Int(actual[i+1])-Int(expected[i+1]))+abs(Int(actual[i+2])-Int(expected[i+2]))
+            difference+=delta;samples+=1;if delta>90{residualGlyphPixels+=1}
+        }}
+        XCTAssertLessThan(Double(difference)/Double(samples*3),18,"Inpainted area should follow the original gradient and vertical texture")
+        XCTAssertLessThan(residualGlyphPixels,60,"Original dark glyph pixels must not remain under the new lettering")
+        for point in [CGPoint(x:8,y:8),CGPoint(x:310,y:170)]{let i=(Int(point.y)*320+Int(point.x))*4;for channel in 0..<3{XCTAssertLessThanOrEqual(abs(Int(actual[i+channel])-Int(expected[i+channel])),2,"Cleanup must not alter pixels outside its text mask")}}
+    }
+    func testRendererDoesNotPaintTwoOwnersForSameOCRLine()throws{
+        let image=renderer(CGSize(width:260,height:130)).image{context in UIColor.white.setFill();context.fill(CGRect(x:0,y:0,width:260,height:130))}.cgImage!
+        let line=ComicLine(text:"ORIGINAL",confidence:1,rect:CGRect(x:75,y:45,width:110,height:28))
+        let first=ComicSpeech(id:"0",text:"ORIGINAL",lines:[line],rect:CGRect(x:35,y:20,width:190,height:80),vertical:false,balloon:true)
+        let duplicate=ComicSpeech(id:"1",text:"ORIGINAL",lines:[line],rect:first.rect,vertical:false,balloon:true)
+        let only=try ComicPixels.render(image,speeches:[first],translations:[TranslationSegment(id:"0",text:"أهلاً")],target:"ar",fontName:nil,fontScale:1)
+        let both=try ComicPixels.render(image,speeches:[first,duplicate],translations:[TranslationSegment(id:"0",text:"أهلاً"),TranslationSegment(id:"1",text:"تكرار")],target:"ar",fontName:nil,fontScale:1)
+        XCTAssertEqual(try ComicPixels.rgba(both,width:260,height:130),try ComicPixels.rgba(only,width:260,height:130))
+    }
     func testGroupingDoesNotJoinAdjacentBalloons(){
         let lines=[ComicLine(text:"첫 줄",confidence:1,rect:CGRect(x:10,y:10,width:80,height:20)),ComicLine(text:"둘째 줄",confidence:1,rect:CGRect(x:10,y:35,width:80,height:20)),ComicLine(text:"다른 말",confidence:1,rect:CGRect(x:200,y:12,width:80,height:20))]
         let speeches=ComicGeometry.group(lines,source:"ko")
         XCTAssertEqual(speeches.count,2);XCTAssertTrue(speeches.contains{$0.lines.count==2})
+    }
+    func testGeometryGroupsCenteredFragmentsWithLooseLineSpacing(){
+        let lines=[ComicLine(text:"FIRST",confidence:1,rect:CGRect(x:90,y:20,width:100,height:16)),ComicLine(text:"SECOND",confidence:1,rect:CGRect(x:115,y:60,width:50,height:16))]
+        let speeches=ComicGeometry.group(lines,source:"en")
+        XCTAssertEqual(speeches.count,1,"Centered fragments in one text block should not become separately scaled translations")
+        XCTAssertEqual(speeches.first?.lines.count,2)
     }
     func testArabicOCRVisualOrderDoesNotReverseLatinTokensOrNumbers(){
         XCTAssertEqual(ComicBidi.logicalFromVisual("ابحرم"),"مرحبا")
@@ -218,7 +281,7 @@ import UIKit
         let scene=try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap{$0 as? UIWindowScene}.first)
         let window=UIWindow(windowScene:scene);window.frame=scene.screen.bounds;window.rootViewController=UIViewController();view.frame=window.bounds;window.rootViewController?.view.addSubview(view);window.windowLevel = .normal+1;window.makeKeyAndVisible()
         defer{tab.dispose();window.isHidden=true;try? FileManager.default.removeItem(at:root)}
-        let sourceURL=URL(string:"https://raw.githubusercontent.com/cobrapk8ggg-netizen/Zeus-Browser-Ascent-Repair-Public-v2/fix/zeus-simulator-files-20261102/.zeus-ci/fixtures/comic-hello-world.png")!
+        let sourceURL=URL(string:"https://raw.githubusercontent.com/cobrapk8-cmyk/Zeus-Browser-Ascent-Repair-Public-v3/bc82343575ff5dc3c830ab6859a53fed343e39e7/.zeus-ci/fixtures/comic-hello-world.png")!
         view.loadHTMLString("<html><body><p id='text'>Original page text stays unchanged.</p><img id='comic' style='width:100%;height:auto' src='\(sourceURL.absoluteString)'></body></html>",baseURL:URL(string:tab.url))
         var deadline=Date().addingTimeInterval(20)
         while Date()<deadline{if (try? await view.callAsyncJavaScript("return !!globalThis.zeusComic && document.images[0]?.complete && document.images[0]?.naturalWidth>0",arguments:[:],in:nil,contentWorld:ComicTranslation.world))as? Bool==true{break};try await Task.sleep(for:.milliseconds(100))}
