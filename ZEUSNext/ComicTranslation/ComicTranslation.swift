@@ -4,6 +4,7 @@ import WebKit
 import UIKit
 import ImageIO
 import CoreGraphics
+import Darwin
 
 @MainActor private final class ComicMessageRouter:NSObject,WKScriptMessageHandler{
     static let shared=ComicMessageRouter()
@@ -20,6 +21,7 @@ import CoreGraphics
     @Published var paused=false
     @Published var completed=0
     private(set) var ocrRuns=0
+    private(set) var imageFallbackCount=0
     @Published var stage=""
     @Published var error:String?
     @Published var storageNotice:String?
@@ -61,7 +63,7 @@ import CoreGraphics
         return try await view.callAsyncJavaScript(code,arguments:args,in:frame?.isMainFrame==true ? nil:frame,contentWorld:Self.world) ?? NSNull()
     }
     func start(){guard let model,let tab,!tab.isHome,!model.requiresUnlock,model.profile.id==tab.profileID else{return};ComicFonts.registerAll();active=true;paused=false;error=nil;failed.removeAll();schedule()}
-    func navigationStarted(){pause();active=false;completed=0;ocrRuns=0;done.removeAll();failed.removeAll();frames.removeAll();documents.removeAll();readings.removeAll();textResults.removeAll();speechTexts.removeAll();fetched.removeAll();resolvedScripts.removeAll();error=nil}
+    func navigationStarted(){pause();active=false;completed=0;ocrRuns=0;imageFallbackCount=0;done.removeAll();failed.removeAll();frames.removeAll();documents.removeAll();readings.removeAll();textResults.removeAll();speechTexts.removeAll();fetched.removeAll();resolvedScripts.removeAll();error=nil}
     func pause(){paused=true;epoch=UUID();work?.cancel();work=nil;running=false;pending=false;for frame in frames.values{Task{_ = try? await call("globalThis.zeusComic?.releaseAll?.()",frame:frame)}}}
     func becameVisible(){if active||preferences.automatic{start()}}
     func restore()async{pause();active=false;for frame in frames.values{_ = try? await call("globalThis.zeusComic?.restore()",frame:frame)};_ = try? await call("globalThis.zeusComic?.restore()",frame:nil);done.removeAll();failed.removeAll();completed=0;error=nil}
@@ -130,6 +132,7 @@ import CoreGraphics
                     if let saved=readings[readingKey]{reading=saved}
                     else if persistent,let stored=await ComicMemory.shared.data(profile:owner,layer:.reading,key:readingKey),let saved=try? JSONDecoder().decode(ComicReading.self,from:stored){reading=saved}
                     else{ocrRuns+=1;reading=try await ComicOCR.shared.read(image,source:prefs.source == "auto" ? (resolvedScripts[document].flatMap{$0.1%3==0 ? nil:$0.0} ?? "auto"):prefs.source,mode:prefs.mode)
+                        NSLog("[ZEUS Comic] stage=ocr result=success lines=\(reading.lines.count) speeches=\(reading.speeches.count)")
                         try valid(ticket)
                         if persistent{do{try await ComicMemory.shared.save(JSONEncoder().encode(reading),profile:owner,layer:.reading,key:readingKey)}catch{storageNotice="تعذّر حفظ قراءة الصورة؛ ستظل الجلسة الحالية متاحة."}}
                     }
@@ -146,7 +149,9 @@ import CoreGraphics
                     let translated:[TranslationSegment]
                     if let saved=textResults[translationKey]{translated=saved}
                     else if persistent,let stored=await ComicMemory.shared.data(profile:owner,layer:.translation,key:translationKey),let saved=try? JSONDecoder().decode([TranslationSegment].self,from:stored){translated=saved}
-                    else{translated=try await translateSpeeches(segments,reading:reading,namespace:translationMark+"|"+ComicIdentity.hash(envelope.url),profile:owner,persistent:persistent,preferences:prefs,translation:translation,provider:provider,ticket:ticket)
+                    else{NSLog("[ZEUS Comic] stage=provider result=start segments=\(segments.count)")
+                        translated=try await translateSpeeches(segments,reading:reading,namespace:translationMark+"|"+ComicIdentity.hash(envelope.url),profile:owner,persistent:persistent,preferences:prefs,translation:translation,provider:provider,ticket:ticket)
+                        NSLog("[ZEUS Comic] stage=provider result=success segments=\(translated.count)")
                         try valid(ticket)
                         if persistent{do{try await ComicMemory.shared.save(JSONEncoder().encode(translated),profile:owner,layer:.translation,key:translationKey)}catch{storageNotice="تعذّر حفظ الترجمة على الجهاز."}}
                     }
@@ -166,8 +171,8 @@ import CoreGraphics
                     let outputRegion:[String:Int]=["x":0,"y":region.y+region.coreTop,"width":region.width,"height":region.coreBottom-region.coreTop]
                     let applied=try await apply(rendered,candidate:candidate,region:outputRegion,mark:mark,generation:generation,frame:frame,ticket:ticket)
                     guard applied else{throw ComicFailure.message("لم يسمح الموقع بعرض الصورة المترجمة؛ بقي الأصل متاحًا.")}
-                    done.insert(job);completed+=1
-                }catch is CancellationError{throw CancellationError()}catch{try valid(ticket);failed.insert(job);self.error=error.localizedDescription;_ = try? await call("zeusComic.release(id)",args:["id":candidate.id],frame:frame)}
+                    done.insert(job);completed+=1;NSLog("[ZEUS Comic] stage=render result=applied")
+                }catch is CancellationError{throw CancellationError()}catch{try valid(ticket);failed.insert(job);let detail=error as NSError;NSLog("[ZEUS Comic] stage=\(stage) result=failed domain=\(detail.domain) code=\(detail.code)");self.error=error.localizedDescription;_ = try? await call("zeusComic.release(id)",args:["id":candidate.id],frame:frame)}
                 await Task.yield()
                 if pending{return}
             }
@@ -213,7 +218,9 @@ import CoreGraphics
             try valid(ticket)
             guard candidate.kind=="image",let tab,let url=URL(string:candidate.source),["https","http"].contains(url.scheme),candidate.width>0,candidate.height>0 else{throw error}
             let data:Data,cacheKey=candidate.source+"|"+candidate.id+"|"+candidate.revision+"|"+(frame?.request.url?.absoluteString ?? tab.url)
-            if let cached=fetched[cacheKey]{data=cached}else{data=try await ComicImageFetch.fetch(url,view:tab.webView);fetched[cacheKey]=data;fetchedOrder.removeAll{$0==cacheKey};fetchedOrder.append(cacheKey)
+            if let cached=fetched[cacheKey]{data=cached}else{NSLog("[ZEUS Comic] stage=webkit-capture result=fallback")
+                data=try await ComicImageFetch.fetch(url,view:tab.webView,page:frame?.request.url ?? URL(string:tab.url));imageFallbackCount+=1
+                NSLog("[ZEUS Comic] stage=image-fetch result=success bytes=\(data.count)");fetched[cacheKey]=data;fetchedOrder.removeAll{$0==cacheKey};fetchedOrder.append(cacheKey)
                 while fetchedOrder.count>4||fetched.values.reduce(0,{$0+$1.count})>33_554_432{let old=fetchedOrder.removeFirst();fetched[old]=nil}}
             return try await Task.detached{let crop=try ComicPixels.decodeRegion(data,region:region,expectedHeight:candidate.height);return try ComicPixels.png(crop)}.value
         }
@@ -231,42 +238,136 @@ import CoreGraphics
 
 private enum ComicImageFetchPolicy{
     static func allows(_ url:URL,from page:URL)->Bool{
-        guard url.user==nil,url.password==nil,let host=url.host,let pageHost=page.host,
-              sameOrigin(url,page),url.scheme?.lowercased()=="http" else{return false}
-        return isLoopback(host)&&isLoopback(pageHost)
+        guard url.user==nil,url.password==nil,page.user==nil,page.password==nil,
+              let host=url.host?.lowercased(),let pageHost=page.host?.lowercased(),
+              let scheme=url.scheme?.lowercased(),let pageScheme=page.scheme?.lowercased(),
+              ["https","http"].contains(scheme),["https","http"].contains(pageScheme) else{return false}
+        if isLoopbackHost(host)||isLoopbackHost(pageHost){
+            return scheme=="http"&&pageScheme=="http"&&isLoopbackHost(host)&&isLoopbackHost(pageHost)&&(url.port ?? 80)==(page.port ?? 80)
+        }
+        guard scheme=="https",url.port==nil||url.port==443,isPublicHost(host) else{return false}
+        return true
     }
     static func sendsCookies(for _:URL,page _:URL)->Bool{false}
     static func allowsRedirect(from origin:URL,to url:URL)->Bool{
-        allows(url,from:origin)
+        guard url.user==nil,url.password==nil,
+              let originHost=origin.host?.lowercased(),let host=url.host?.lowercased(),
+              let originScheme=origin.scheme?.lowercased(),let scheme=url.scheme?.lowercased() else{return false}
+        if isLoopbackHost(originHost)||isLoopbackHost(host){
+            return originScheme=="http"&&scheme=="http"&&isLoopbackHost(originHost)&&isLoopbackHost(host)&&(origin.port ?? 80)==(url.port ?? 80)
+        }
+        return scheme=="https"&&(url.port==nil||url.port==443)&&isPublicHost(host)
     }
-    private static func sameOrigin(_ lhs:URL,_ rhs:URL)->Bool{
-        guard let lhsHost=lhs.host?.lowercased(),let rhsHost=rhs.host?.lowercased(),
-              let lhsScheme=lhs.scheme?.lowercased(),lhsScheme==rhs.scheme?.lowercased() else{return false}
-        let lhsPort=lhs.port ?? (lhsScheme=="https" ? 443:80),rhsPort=rhs.port ?? (lhsScheme=="https" ? 443:80)
-        return lhsHost==rhsHost&&lhsPort==rhsPort
-    }
-    private static func isLoopback(_ host:String)->Bool{
+    static func isLoopbackHost(_ host:String)->Bool{
         let value=host.lowercased().trimmingCharacters(in:CharacterSet(charactersIn:"[]"))
         if value=="localhost"||value.hasSuffix(".localhost")||value=="::1"{return true}
         let parts=value.split(separator:".",omittingEmptySubsequences:false)
         guard parts.count==4,let first=Int(parts[0]),first==127 else{return false}
-        return parts.allSatisfy{part in !part.isEmpty && Int(part).map{(0...255).contains($0)}==true}
+        return parts.allSatisfy{part in !part.isEmpty&&Int(part).map{(0...255).contains($0)}==true}
+    }
+    static func resolvesToPublicAddresses(_ host:String)->Bool{
+        // All A/AAAA answers must be public; the connected peer is checked again after transfer.
+        var hints=addrinfo();hints.ai_family=AF_UNSPEC;hints.ai_socktype=SOCK_STREAM
+        var resolved:UnsafeMutablePointer<addrinfo>?
+        let result=host.withCString{name in getaddrinfo(name,nil,&hints,&resolved)}
+        guard result==0,let first=resolved else{return false}
+        defer{freeaddrinfo(first)}
+        var current:UnsafeMutablePointer<addrinfo>?=first;var found=false
+        while let entry=current{
+            if let address=entry.pointee.ai_addr{
+                var numeric=[CChar](repeating:0,count:1025)
+                let status=getnameinfo(address,entry.pointee.ai_addrlen,&numeric,socklen_t(numeric.count),nil,0,NI_NUMERICHOST)
+                guard status==0,isPublicAddress(String(cString:numeric)) else{return false}
+                found=true
+            }
+            current=entry.pointee.ai_next
+        }
+        return found
+    }
+    static func isSafeRemoteAddress(_ raw:String,origin:URL)->Bool{
+        let address:String
+        if raw.first=="["{address=String(raw.dropFirst().prefix{$0 != "]"})}
+        else if raw.filter({$0==":"}).count==1,raw.contains("."){address=String(raw.split(separator:":",maxSplits:1)[0])}
+        else{address=raw}
+        if isLoopbackHost(origin.host ?? ""){return isLoopbackHost(address)}
+        return isPublicAddress(address)
+    }
+    static func isPublicAddress(_ value:String)->Bool{
+        if value.contains(":"){return isPublicIPv6(value)}
+        return isPublicIPv4(value)
+    }
+    private static func isPublicHost(_ host:String)->Bool{
+        let value=host.lowercased().trimmingCharacters(in:CharacterSet(charactersIn:"[]"))
+        guard !value.isEmpty else{return false}
+        if value.contains(":"){return isPublicIPv6(value)}
+        let localSuffixes=["localhost","local","lan","internal","home.arpa","localdomain","test","example","invalid","onion","arpa"]
+        if localSuffixes.contains(where:{value==$0||value.hasSuffix("."+$0)}){return false}
+        let parts=value.split(separator:".",omittingEmptySubsequences:false),octets=parts.compactMap{Int($0)}
+        if parts.count==4,octets.count==4,octets.allSatisfy({(0...255).contains($0)}){return isPublicIPv4(value)}
+        if value.range(of:#"^(?:0x[0-9a-f]+|[0-9]+)(?:\.(?:0x[0-9a-f]+|[0-9]+))*$"#,options:.regularExpression) != nil{return false}
+        return value.contains(".")&&!value.hasSuffix(".")
+    }
+    private static func isPublicIPv4(_ value:String)->Bool{
+        let parts=value.split(separator:".",omittingEmptySubsequences:false),octets=parts.compactMap{Int($0)}
+        guard parts.count==4,octets.count==4,octets.allSatisfy({(0...255).contains($0)})else{return false}
+        let a=octets[0],b=octets[1],c=octets[2]
+        if a==0||a==10||a==127||a>=224{return false}
+        if a==100&&(64...127).contains(b){return false}
+        if a==169&&b==254{return false}
+        if a==172&&(16...31).contains(b){return false}
+        if a==192&&(b==168||(b==0&&(c==0||c==2))||(b==88&&c==99)){return false}
+        if a==198&&((b==18||b==19)||(b==51&&c==100)){return false}
+        if a==203&&b==0&&c==113{return false}
+        return true
+    }
+    private static func isPublicIPv6(_ value:String)->Bool{
+        var address=in6_addr()
+        guard value.withCString({inet_pton(AF_INET6,$0,&address)})==1 else{return false}
+        let bytes=withUnsafeBytes(of:address){Array($0)}
+        if bytes.count==16,bytes[0]==0,bytes[1]==0,bytes[2]==0,bytes[3]==0,bytes[4]==0,bytes[5]==0,bytes[6]==0,bytes[7]==0,bytes[8]==0,bytes[9]==0,bytes[10]==0xff,bytes[11]==0xff{
+            return isPublicIPv4(bytes[12...15].map{String($0)}.joined(separator:"."))
+        }
+        if bytes.count==16,bytes[0]==0,bytes[1]==0x64,bytes[2]==0xff,bytes[3]==0x9b,bytes[4...11].allSatisfy({$0==0}){
+            return isPublicIPv4(bytes[12...15].map{String($0)}.joined(separator:"."))
+        }
+        guard bytes.count==16,(bytes[0]&0xe0)==0x20 else{return false}
+        if bytes[0]==0x20&&bytes[1]==0x01{
+            let second=(Int(bytes[2])<<8)|Int(bytes[3])
+            if second<=0x01ff||second==0x0db8{return false}
+        }
+        if (bytes[0]==0x20&&bytes[1]==0x02)||(bytes[0]==0x3f&&(bytes[1]==0xfe||bytes[1]==0xff)){return false}
+        return true
     }
 }
 @MainActor enum ComicImageFetch{
     static func allows(_ url:URL,from page:URL)->Bool{ComicImageFetchPolicy.allows(url,from:page)}
     static func sendsCookies(for url:URL,page:URL)->Bool{ComicImageFetchPolicy.sendsCookies(for:url,page:page)}
     static func allowsRedirect(from origin:URL,to url:URL)->Bool{ComicImageFetchPolicy.allowsRedirect(from:origin,to:url)}
-    static func fetch(_ url:URL,view:WKWebView?)async throws->Data{
-        guard url.user==nil,url.password==nil,let page=view?.url,ComicImageFetchPolicy.allows(url,from:page) else{throw URLError(.noPermissionsToReadFile)}
+    static func fetch(_ url:URL,view:WKWebView?,page:URL?=nil)async throws->Data{
+        guard url.user==nil,url.password==nil,let view else{throw ComicFailure.message("تعذّر جلب صورة المصدر.")}
+        guard let pageURL=page ?? view.url,ComicImageFetchPolicy.allows(url,from:pageURL) else{
+            NSLog("[ZEUS Comic] stage=image-fetch result=blocked-policy")
+            throw ComicFailure.message("تعذّر جلب الصورة: يلزم HTTPS لمضيف عام؛ ويُسمح بـHTTP على loopback للاختبارات فقط.")
+        }
+        if !ComicImageFetchPolicy.isLoopbackHost(url.host ?? ""){
+            let host=url.host ?? ""
+            // URLSession cannot pin DNS atomically; a rebind can trigger only a bounded unauthenticated GET, and its body is rejected before OCR/provider unless the actual peer is public.
+            let resolvedIsPublic=await Task.detached(priority:.utility){ComicImageFetchPolicy.resolvesToPublicAddresses(host)}.value
+            guard resolvedIsPublic else{NSLog("[ZEUS Comic] stage=image-fetch result=unsafe-dns");throw ComicFailure.message("أُوقف جلب الصورة لأن اسم المصدر لا يشير إلى عناوين إنترنت عامة.")}
+        }
+        let redirects=ComicImageRedirects(origin:url)
         let configuration=URLSessionConfiguration.ephemeral;configuration.httpCookieStorage=nil;configuration.httpShouldSetCookies=false;configuration.urlCache=nil
-        let session=URLSession(configuration:configuration,delegate:ComicImageRedirects(origin:url),delegateQueue:nil);defer{session.invalidateAndCancel()}
+        let session=URLSession(configuration:configuration,delegate:redirects,delegateQueue:nil);defer{session.invalidateAndCancel()}
         var request=URLRequest(url:url);request.httpShouldHandleCookies=false
         request.setValue(nil,forHTTPHeaderField:"Cookie");request.setValue(nil,forHTTPHeaderField:"Authorization");request.setValue(nil,forHTTPHeaderField:"Referer")
-        request.setValue(view?.customUserAgent,forHTTPHeaderField:"User-Agent")
+        request.setValue("image/*,*/*;q=0.8",forHTTPHeaderField:"Accept")
         let (file,response)=try await session.download(for:request)
         defer{try? FileManager.default.removeItem(at:file)}
-        guard (response as? HTTPURLResponse)?.statusCode==200,response.mimeType?.hasPrefix("image/")==true,(try file.resourceValues(forKeys:[.fileSizeKey]).fileSize ?? Int.max)<=33_554_432 else{throw URLError(.cannotDecodeContentData)}
+        guard redirects.remoteAddressesAreSafe else{NSLog("[ZEUS Comic] stage=image-fetch result=unsafe-peer");throw ComicFailure.message("أُوقف جلب الصورة لأن الاتصال لم يصل إلى عنوان شبكة عام آمن.")}
+        let status=(response as? HTTPURLResponse)?.statusCode ?? 0
+        let mime=response.mimeType?.lowercased() ?? ""
+        guard status==200,mime.hasPrefix("image/"),mime != "image/svg+xml" else{throw ComicFailure.message("لم يُرجع موقع الصورة ملفًا نقطيًا مدعومًا (HTTP \(status)).")}
+        guard (try file.resourceValues(forKeys:[.fileSizeKey]).fileSize ?? Int.max)<=33_554_432 else{throw ComicFailure.message("حجم صورة المصدر يتجاوز 32 MiB.")}
         return try await Task.detached{try Data(contentsOf:file,options:.mappedIfSafe)}.value
     }
 }
@@ -274,9 +375,20 @@ private final class ComicImageRedirects:NSObject,URLSessionDownloadDelegate,@unc
     func urlSession(_ session:URLSession,downloadTask:URLSessionDownloadTask,didFinishDownloadingTo location:URL){}
     func urlSession(_ session:URLSession,downloadTask:URLSessionDownloadTask,didWriteData bytesWritten:Int64,totalBytesWritten:Int64,totalBytesExpectedToWrite:Int64){if totalBytesWritten>33_554_432||totalBytesExpectedToWrite>33_554_432{downloadTask.cancel()}}
     let origin:URL
+    private let lock=NSLock()
+    private var remoteAddresses:[String?]=[]
     init(origin:URL){self.origin=origin}
+    var remoteAddressesAreSafe:Bool{
+        lock.lock();let addresses=remoteAddresses;lock.unlock()
+        return !addresses.isEmpty&&addresses.allSatisfy{guard let address=$0 else{return false};return ComicImageFetchPolicy.isSafeRemoteAddress(address,origin:origin)}
+    }
+    func urlSession(_ session:URLSession,task:URLSessionTask,didFinishCollecting metrics:URLSessionTaskMetrics){
+        let addresses=metrics.transactionMetrics.map{$0.remoteAddress}
+        lock.lock();remoteAddresses.append(contentsOf:addresses);lock.unlock()
+    }
     func urlSession(_ session:URLSession,task:URLSessionTask,willPerformHTTPRedirection response:HTTPURLResponse,newRequest request:URLRequest,completionHandler:@escaping(URLRequest?)->Void){
         guard let url=request.url,ComicImageFetchPolicy.allowsRedirect(from:origin,to:url) else{completionHandler(nil);return}
+        if !ComicImageFetchPolicy.isLoopbackHost(url.host ?? ""),!ComicImageFetchPolicy.resolvesToPublicAddresses(url.host ?? ""){completionHandler(nil);return}
         var next=request;next.httpShouldHandleCookies=false;next.setValue(nil,forHTTPHeaderField:"Cookie");next.setValue(nil,forHTTPHeaderField:"Authorization");next.setValue(nil,forHTTPHeaderField:"Referer")
         completionHandler(next)
     }

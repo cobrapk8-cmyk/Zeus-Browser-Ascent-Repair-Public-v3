@@ -122,28 +122,43 @@ import UIKit
         XCTAssertEqual(decoded.settings.translation?.target,"fr");XCTAssertEqual(decoded.settings.comicTranslation?.translation?.target,"ar")
         XCTAssertEqual(ComicPreferences().mode,.fastest)
     }
-    func testImageFallbackIsBoundToLoopbackAndNeverSendsCookies(){
-        let page=URL(string:"https://comic.example/series/one")!
-        let sameOrigin=URL(string:"https://comic.example/panel.png")!
-        let otherHost=URL(string:"https://cdn.example/panel.png")!
-        let otherPort=URL(string:"https://comic.example:8443/panel.png")!
-        let insecure=URL(string:"http://comic.example/panel.png")!
+    func testImageFallbackAllowsPublicHTTPSAndNeverSendsCookies(){
+        let page=URL(string:"https://reader.example.net/series/one")!
+        let sameOrigin=URL(string:"https://reader.example.net/panel.png")!
+        let cdn=URL(string:"https://images.example.org/panel.png")!
+        let otherPort=URL(string:"https://reader.example.net:8443/panel.png")!
+        let insecure=URL(string:"http://reader.example.net/panel.png")!
         let localPage=URL(string:"http://127.0.0.1:8765/comic")!
         let localImage=URL(string:"http://127.0.0.1:8765/panel.png")!
+        let localCDN=URL(string:"http://127.0.0.2:8765/panel.png")!
         let privateAddress=URL(string:"http://192.168.1.1/panel.png")!
-        XCTAssertFalse(ComicImageFetch.allows(sameOrigin,from:page))
-        XCTAssertFalse(ComicImageFetch.allows(otherHost,from:page))
+        let linkLocal=URL(string:"https://169.254.10.20/panel.png")!
+        let privateName=URL(string:"https://printer.local/panel.png")!
+        let publicIPv6=URL(string:"https://[2606:4700:4700::1111]/panel.png")!
+        let privateIPv6=URL(string:"https://[fc00::1]/panel.png")!
+        let multicastIPv6=URL(string:"https://[ff02::1]/panel.png")!
+        XCTAssertTrue(ComicImageFetch.allows(sameOrigin,from:page))
+        XCTAssertTrue(ComicImageFetch.allows(cdn,from:page),"Public HTTPS image CDNs may be cross-origin")
         XCTAssertFalse(ComicImageFetch.allows(otherPort,from:page))
-        XCTAssertFalse(ComicImageFetch.allows(insecure,from:page))
+        XCTAssertFalse(ComicImageFetch.allows(insecure,from:page),"Remote cleartext images are not fetched natively")
         XCTAssertTrue(ComicImageFetch.allows(localImage,from:localPage))
-        XCTAssertFalse(ComicImageFetch.allows(privateAddress,from:URL(string:"http://192.168.1.1/comic")!))
+        XCTAssertTrue(ComicImageFetch.allows(localCDN,from:localPage),"Cross-origin loopback fixture remains testable")
+        XCTAssertFalse(ComicImageFetch.allows(privateAddress,from:page))
+        XCTAssertFalse(ComicImageFetch.allows(linkLocal,from:page))
+        XCTAssertFalse(ComicImageFetch.allows(privateName,from:page))
+        XCTAssertTrue(ComicImageFetch.allows(publicIPv6,from:page))
+        XCTAssertFalse(ComicImageFetch.allows(privateIPv6,from:page))
+        XCTAssertFalse(ComicImageFetch.allows(multicastIPv6,from:page))
+        XCTAssertFalse(ComicImageFetch.allows(URL(string:"https://[::ffff:192.168.1.1]/panel.png")!,from:page))
+        XCTAssertFalse(ComicImageFetch.allows(URL(string:"https://user:password@reader.example.net/panel.png")!,from:page))
         XCTAssertFalse(ComicImageFetch.sendsCookies(for:localImage,page:localPage))
         XCTAssertFalse(ComicImageFetch.sendsCookies(for:sameOrigin,page:page))
-        XCTAssertFalse(ComicImageFetch.allowsRedirect(from:sameOrigin,to:otherHost))
-        XCTAssertFalse(ComicImageFetch.allowsRedirect(from:sameOrigin,to:URL(string:"https://comic.example/next.png")!))
-        XCTAssertTrue(ComicImageFetch.allowsRedirect(from:localImage,to:URL(string:"http://127.0.0.1:8765/next.png")!))
+        XCTAssertTrue(ComicImageFetch.allowsRedirect(from:sameOrigin,to:cdn))
+        XCTAssertFalse(ComicImageFetch.allowsRedirect(from:sameOrigin,to:insecure),"HTTPS downgrade must be rejected")
+        XCTAssertFalse(ComicImageFetch.allowsRedirect(from:sameOrigin,to:URL(string:"https://192.168.1.1/panel.png")!))
+        XCTAssertFalse(ComicImageFetch.allowsRedirect(from:sameOrigin,to:URL(string:"https://user:password@cdn.example.org/panel.png")!))
+        XCTAssertTrue(ComicImageFetch.allowsRedirect(from:localImage,to:localCDN))
         XCTAssertFalse(ComicImageFetch.allowsRedirect(from:localImage,to:URL(string:"http://127.0.0.1:8766/next.png")!))
-        XCTAssertFalse(ComicImageFetch.allows(URL(string:"https://user:password@comic.example/panel.png")!,from:page))
     }
     func testActualWebKitSwapRestoreAndStaleResults()async throws{
         let image=renderer(CGSize(width:200,height:100)).image{c in UIColor.white.setFill();c.fill(CGRect(x:0,y:0,width:200,height:100));("ORIGINAL" as NSString).draw(at:CGPoint(x:20,y:30),withAttributes:[.foregroundColor:UIColor.black,.font:UIFont.systemFont(ofSize:20)])}
@@ -193,19 +208,18 @@ import UIKit
         var provider=AIProviderConfiguration();provider.baseURL="http://127.0.0.1:8765/v1";provider.model="comic-"+UUID().uuidString;model.data.settings.aiProviders=[provider]
         var preferences=ComicPreferences();preferences.source="en";preferences.showUntranslated=true
         var translation=TranslationPreferences();translation.engine = .ai;translation.providerID=provider.id;preferences.translation=translation;model.data.settings.comicTranslation=preferences
-        let tab=try XCTUnwrap(model.current);tab.url="http://127.0.0.1:8765/comic-end-to-end"
+        let tab=try XCTUnwrap(model.current);tab.url="https://comic-example.net/reader"
         let prepared=await model.prepare(tab),view=try XCTUnwrap(prepared),session=try XCTUnwrap(tab.comicTranslation)
         let scene=try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap{$0 as? UIWindowScene}.first)
         let window=UIWindow(windowScene:scene);window.frame=scene.screen.bounds;window.rootViewController=UIViewController();view.frame=window.bounds;window.rootViewController?.view.addSubview(view);window.windowLevel = .normal+1;window.makeKeyAndVisible()
         defer{tab.dispose();window.isHidden=true;try? FileManager.default.removeItem(at:root)}
-        let source=renderer(CGSize(width:640,height:240)).image{context in UIColor.white.setFill();context.fill(CGRect(x:0,y:0,width:640,height:240));("HELLO WORLD" as NSString).draw(at:CGPoint(x:100,y:80),withAttributes:[.font:UIFont.systemFont(ofSize:48),.foregroundColor:UIColor.black])}
-        let encoded=try XCTUnwrap(source.pngData()).base64EncodedString()
-        view.loadHTMLString("<html><body><p id='text'>Original page text stays unchanged.</p><img id='comic' style='width:100%;height:auto' src='data:image/png;base64,\(encoded)'></body></html>",baseURL:URL(string:tab.url))
+        let sourceURL=URL(string:"https://raw.githubusercontent.com/cobrapk8ggg-netizen/Zeus-Browser-Ascent-Repair-Public-v2/fix/zeus-simulator-files-20261102/.zeus-ci/fixtures/comic-hello-world.png")!
+        view.loadHTMLString("<html><body><p id='text'>Original page text stays unchanged.</p><img id='comic' style='width:100%;height:auto' src='\(sourceURL.absoluteString)'></body></html>",baseURL:URL(string:tab.url))
         var deadline=Date().addingTimeInterval(20)
-        while Date()<deadline{if (try? await view.callAsyncJavaScript("return !!globalThis.zeusComic && document.images[0]?.complete",arguments:[:],in:nil,contentWorld:ComicTranslation.world))as? Bool==true{break};try await Task.sleep(for:.milliseconds(100))}
+        while Date()<deadline{if (try? await view.callAsyncJavaScript("return !!globalThis.zeusComic && document.images[0]?.complete && document.images[0]?.naturalWidth>0",arguments:[:],in:nil,contentWorld:ComicTranslation.world))as? Bool==true{break};try await Task.sleep(for:.milliseconds(100))}
         session.start();deadline=Date().addingTimeInterval(35)
         while Date()<deadline && (session.running||session.completed==0) && session.error==nil{try await Task.sleep(for:.milliseconds(100))}
-        XCTAssertNil(session.error);XCTAssertGreaterThan(session.completed,0)
+        XCTAssertNil(session.error);XCTAssertGreaterThan(session.imageFallbackCount,0,"Cross-origin HTTPS image must use native fallback");XCTAssertGreaterThan(session.ocrRuns,0);XCTAssertGreaterThan(session.completed,0)
         let unchanged=try await view.evaluateJavaScript("document.querySelector('#text').textContent")as? String
         XCTAssertEqual(unchanged,"Original page text stays unchanged.")
         let sourceBefore=try await view.evaluateJavaScript("document.images[0].src")as? String
@@ -223,7 +237,7 @@ import UIKit
         if let snapshot=try? await view.takeSnapshot(configuration:nil){let attachment=XCTAttachment(image:snapshot);attachment.name="Image-only end-to-end - Arabic custom color";attachment.lifetime = .keepAlways;add(attachment)}
         await session.restore()
         let original=try await view.evaluateJavaScript("document.images[0].src")as? String
-        XCTAssertTrue(original?.hasPrefix("data:image/png")==true)
+        XCTAssertTrue(original?.hasPrefix("https://raw.githubusercontent.com/")==true,"Original HTTPS image source should be restored")
         try await ComicMemory.shared.clear(profile:model.profile.id)
     }
     func testOCRAndTranslationCachesAreSeparateAndProfileScoped()async throws{
