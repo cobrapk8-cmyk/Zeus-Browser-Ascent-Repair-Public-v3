@@ -148,6 +148,32 @@ import UIKit
         XCTAssertGreaterThan(upperBlue,20);XCTAssertGreaterThan(lowerBlue,20);XCTAssertLessThan(sourceBlack,20,"Original black lettering must be removed before Arabic is painted")
         let attachment=XCTAttachment(image:UIImage(cgImage:output));attachment.name="Connected speech bubbles - separate Arabic placements";attachment.lifetime = .keepAlways;add(attachment)
     }
+    func testFartherValidDividerWinsOverCloserNonDividerCandidate(){
+        let image=renderer(CGSize(width:320,height:300)).image{context in
+            UIColor.darkGray.setFill();context.fill(CGRect(x:0,y:0,width:320,height:300))
+            UIColor.white.setFill();UIBezierPath(roundedRect:CGRect(x:40,y:20,width:240,height:150),cornerRadius:68).fill();UIBezierPath(roundedRect:CGRect(x:60,y:90,width:240,height:150),cornerRadius:68).fill()
+            UIColor.black.setStroke();let divider=UIBezierPath();divider.move(to:CGPoint(x:80,y:124));divider.addLine(to:CGPoint(x:270,y:124));divider.lineWidth=3;divider.stroke()
+        }.cgImage!
+        let upper=ComicLine(text:"UPPER",confidence:0.98,rect:CGRect(x:96,y:68,width:110,height:24))
+        let nearWithoutDivider=ComicLine(text:"NEAR",confidence:0.98,rect:CGRect(x:106,y:107,width:100,height:18))
+        let lower=ComicLine(text:"LOWER",confidence:0.98,rect:CGRect(x:96,y:139,width:110,height:24))
+        let speeches=ComicBalloons.speeches([lower,nearWithoutDivider,upper],image:image,source:"en")
+        XCTAssertEqual(speeches.count,2,"A farther prior line with a valid divider must win over the closer OCR box whose bounds cover that divider")
+        XCTAssertEqual(speeches.map{$0.lines.count},[2,1],"The upper lines belong together; the lower line belongs to the separated lobe")
+        XCTAssertEqual(speeches.map{$0.lines.map(\.text)},[["UPPER","NEAR"],["LOWER"]])
+    }
+    func testLongInteriorDrawingStrokeIsNotABalloonDivider(){
+        let image=renderer(CGSize(width:320,height:240)).image{context in
+            UIColor.darkGray.setFill();context.fill(CGRect(x:0,y:0,width:320,height:240))
+            UIColor.white.setFill();UIBezierPath(ovalIn:CGRect(x:40,y:20,width:240,height:200)).fill()
+            UIColor.black.setStroke();let drawingStroke=UIBezierPath();drawingStroke.move(to:CGPoint(x:78,y:116));drawingStroke.addLine(to:CGPoint(x:242,y:116));drawingStroke.lineWidth=3;drawingStroke.stroke()
+        }.cgImage!
+        let upper=ComicLine(text:"FIRST",confidence:0.98,rect:CGRect(x:104,y:70,width:110,height:28))
+        let lower=ComicLine(text:"SECOND",confidence:0.98,rect:CGRect(x:104,y:132,width:110,height:28))
+        let speeches=ComicBalloons.speeches([upper,lower],image:image,source:"en")
+        XCTAssertEqual(speeches.count,1,"A long stroke floating inside one connected balloon is artwork, not a divider between speech bubbles")
+        XCTAssertEqual(speeches.first?.lines.map(\.text),["FIRST","SECOND"])
+    }
     func testRendererCleanupRemovesGlyphsAndPreservesTexturedGradient()throws{
         let size=CGSize(width:320,height:180)
         func paintBackground(_ context:UIGraphicsImageRendererContext){
