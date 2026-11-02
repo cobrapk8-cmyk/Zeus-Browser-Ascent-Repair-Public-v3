@@ -255,13 +255,17 @@ class Handler(BaseHTTPRequestHandler):
             <button onclick="const p=document.createElement('p');p.id='dynamic';p.textContent='Another chapter arrives after the initial translation.';document.body.append(p)">Add paragraph</button>
             <a href="/translate-fixture?next">Next page</a><iframe src="/translate-frame" width="500" height="80"></iframe></body></html>'''
             self.send_response(200); self.send_header('Content-Type', 'text/html; charset=utf-8'); self.send_header('Content-Length', str(len(body))); self.end_headers(); self.wfile.write(body); return
+        if self.path.split('?', 1)[0] == '/live-smoke-enabled':
+            enabled = os.environ.get('ZEUS_RUN_COMIX_LIVE_SMOKE', '').lower() in ('true', '1')
+            body = b'enabled' if enabled else b'disabled'
+            self.send_response(200 if enabled else 404); self.send_header('Content-Length', str(len(body))); self.end_headers(); self.wfile.write(body); return
         if self.path.split('?', 1)[0] == '/comic-referrer-guard.png':
             if self.headers.get('Referer'):
                 self.send_response(403); self.send_header('Content-Length', '0'); self.end_headers(); return
             self.send_response(200); self.send_header('Content-Type', 'image/png'); self.send_header('Cache-Control', 'no-store'); self.send_header('Content-Length', str(len(COMIC_IMAGE))); self.end_headers(); self.wfile.write(COMIC_IMAGE); return
         if self.path.split('?', 1)[0] == '/comic-referrer-guard-page':
             body = b'''<!doctype html><html lang="en"><body><p id="text">The article text remains untouched.</p>
-            <img id="comic" width="200" height="400" referrerpolicy="no-referrer" src="http://127.0.0.2:8765/comic-referrer-guard.png"></body></html>'''
+            <img id="comic" width="200" height="400" referrerpolicy="no-referrer" src="http://localhost:8765/comic-referrer-guard.png"></body></html>'''
             self.send_response(200); self.send_header('Content-Type', 'text/html; charset=utf-8'); self.send_header('Content-Length', str(len(body))); self.end_headers(); self.wfile.write(body); return
         if self.path.startswith('/image.png'):
             self.send_response(200); self.send_header('Content-Type', 'image/png'); self.send_header('Content-Length', str(len(IMAGE))); self.end_headers(); self.wfile.write(IMAGE)

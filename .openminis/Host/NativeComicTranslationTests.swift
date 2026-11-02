@@ -260,12 +260,13 @@ import UIKit
         view.load(URLRequest(url:page))
         var ready=false,deadline=Date().addingTimeInterval(20)
         while Date()<deadline{if (try? await view.callAsyncJavaScript("return !!globalThis.zeusComic && document.images[0]?.complete && document.images[0]?.naturalWidth>0",arguments:[:],in:nil,contentWorld:ComicTranslation.world))as? Bool==true{ready=true;break};try await Task.sleep(for:.milliseconds(100))}
-        XCTAssertTrue(ready,"The cross-origin no-referrer fixture image should load in WebKit")
+        guard ready else{XCTFail("The cross-origin no-referrer fixture image should load in WebKit");return}
         session.start();deadline=Date().addingTimeInterval(45)
         while Date()<deadline && session.completed==0 && session.error==nil{try await Task.sleep(for:.milliseconds(100))}
-        XCTAssertTrue(session.error==nil,"The image pipeline should succeed when Referer is rejected")
+        guard session.completed>0 else{XCTFail("No cross-origin image was translated by the fixture provider");return}
+        XCTAssertNil(session.error,"The image pipeline should succeed when Referer is rejected")
         XCTAssertGreaterThan(session.imageFallbackCount,0,"A tainted cross-origin canvas must use native image fallback")
-        XCTAssertGreaterThan(session.ocrRuns,0);XCTAssertGreaterThan(session.completed,0)
+        XCTAssertGreaterThan(session.ocrRuns,0)
         let requestsURL=URL(string:"http://127.0.0.1:8765/translation-requests?model="+provider.model)!
         let (requestData,_)=try await URLSession.shared.data(from:requestsURL),requests=try XCTUnwrap(JSONSerialization.jsonObject(with:requestData)as? [[String]])
         XCTAssertFalse(requests.isEmpty,"The configured fixture provider must receive the recognized text")
@@ -274,7 +275,9 @@ import UIKit
         await session.restore();try await ComicMemory.shared.clear(profile:model.profile.id)
     }
     func testLiveComixChapterTranslationWhenOptedIn()async throws{
-        guard ["true","1"].contains(ProcessInfo.processInfo.environment["ZEUS_RUN_COMIX_LIVE_SMOKE"] ?? "") else{throw XCTSkip("Opt-in live chapter smoke test")}
+        let gate=URL(string:"http://127.0.0.1:8765/live-smoke-enabled")!
+        let (_,gateResponse)=try await URLSession.shared.data(from:gate)
+        guard (gateResponse as? HTTPURLResponse)?.statusCode==200 else{throw XCTSkip("Opt-in live chapter smoke test")}
         let root=FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         let model=BrowserModel(profiles:ProfileStore(root:root,downloadsRoot:root.appendingPathComponent("Downloads")),useBackgroundDownloads:false)
         model.data.settings.shieldsEnabled=false
@@ -294,7 +297,7 @@ import UIKit
             loadedImages=probe?["loaded"]as? Int ?? 0;externalImages=probe?["external"]as? Bool ?? false
             if loadedImages>0{break};try await Task.sleep(for:.milliseconds(200))
         }
-        XCTAssertGreaterThan(loadedImages,0,"The live chapter should expose at least one loaded comic image")
+        guard loadedImages>0 else{XCTFail("The live chapter should expose at least one loaded comic image");return}
         session.start();deadline=Date().addingTimeInterval(105)
         while Date()<deadline && (session.completed==0 || (externalImages && session.imageFallbackCount==0)){try await Task.sleep(for:.milliseconds(200))}
         let applied=session.completed,fallbacks=session.imageFallbackCount,ocr=session.ocrRuns

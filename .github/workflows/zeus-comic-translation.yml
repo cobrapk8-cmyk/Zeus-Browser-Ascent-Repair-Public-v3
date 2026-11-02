@@ -98,19 +98,19 @@ jobs:
           fi
       - name: Start deterministic provider fixture
         if: matrix.sdk == 'iphonesimulator'
+        env:
+          ZEUS_RUN_COMIX_LIVE_SMOKE: ${{ inputs.run_live_comix_smoke }}
         run: |
           python3 .zeus-ci/fixture_server.py > results/fixture.log 2>&1 &
           curl --fail --max-time 5 --retry 10 --retry-connrefused http://127.0.0.1:8765/ > /dev/null
       - name: Test actual WebKit bridge and pixel rendering
         timeout-minutes: 20
         if: matrix.sdk == 'iphonesimulator'
-        env:
-          ZEUS_RUN_COMIX_LIVE_SMOKE: ${{ inputs.run_live_comix_smoke }}
         run: |
           set -euo pipefail
-          if [ "${ZEUS_RUN_COMIX_LIVE_SMOKE:-false}" = "true" ]; then DEFAULT_TEST_ALLOWANCE=180; MAX_TEST_ALLOWANCE=240; else DEFAULT_TEST_ALLOWANCE=90; MAX_TEST_ALLOWANCE=120; fi
+          if [ "${{ inputs.run_live_comix_smoke }}" = "true" ]; then DEFAULT_TEST_ALLOWANCE=180; MAX_TEST_ALLOWANCE=240; else DEFAULT_TEST_ALLOWANCE=90; MAX_TEST_ALLOWANCE=120; fi
           set -o pipefail
-          xcodebuild -project ZEUSNext.xcodeproj -scheme ZEUSNext -sdk iphonesimulator -destination "platform=iOS Simulator,id=$COMIC_SIMULATOR" -derivedDataPath "$RUNNER_TEMP/ZeusComicSim" -resultBundlePath results/comic.xcresult -only-testing:ZEUSNextTests/NativeComicTranslationTests -only-testing:ZEUSNextTests/BrowserCoreTests/testPersistKeepsPrimaryTabWhenSecondaryPaneIsFocused -only-testing:ZEUSNextTests/BrowserCoreTests/testGalleryImageDownloadEnforcesSizeLimitBeforeAndDuringTransfer -only-testing:ZEUSNextTests/BrowserCoreTests/testAIImageAttachmentRejectsExcessivePixelCountsAndDimensions -only-testing:ZEUSNextTests/BrowserCoreTests/testAIAttachmentRejectsOversizedFileBeforeImageInspection -parallel-testing-enabled NO -test-timeouts-enabled YES -default-test-execution-time-allowance "$DEFAULT_TEST_ALLOWANCE" -maximum-test-execution-time-allowance "$MAX_TEST_ALLOWANCE" test CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- 2>&1 | tee results/simulator.log
+          xcodebuild -project ZEUSNext.xcodeproj -scheme ZEUSNext -sdk iphonesimulator -destination "platform=iOS Simulator,id=$COMIC_SIMULATOR" -derivedDataPath "$RUNNER_TEMP/ZeusComicSim" -resultBundlePath results/comic.xcresult -only-testing:ZEUSNextTests/NativeComicTranslationTests -only-testing:ZEUSNextTests/BrowserCoreTests/testPersistKeepsPrimaryTabWhenSecondaryPaneIsFocused -only-testing:ZEUSNextTests/BrowserCoreTests/testGalleryImageDownloadEnforcesSizeLimitBeforeAndDuringTransfer -only-testing:ZEUSNextTests/BrowserCoreTests/testAIImageAttachmentRejectsExcessivePixelCountsAndDimensions -only-testing:ZEUSNextTests/BrowserCoreTests/testAIAttachmentRejectsOversizedFileBeforeImageInspection -parallel-testing-enabled NO -test-timeouts-enabled YES -default-test-execution-time-allowance "$DEFAULT_TEST_ALLOWANCE" -maximum-test-execution-time-allowance "$MAX_TEST_ALLOWANCE" test CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- 2>&1 | python3 -u .zeus-ci/redact_ci_log.py | tee results/simulator.log
       - name: Collect simulator diagnostics
         if: always() && matrix.sdk == 'iphonesimulator'
         timeout-minutes: 2
@@ -125,8 +125,9 @@ jobs:
           mkdir -p results
           git rev-parse HEAD > results/source-commit.txt
           if [ -f results/comic.xcresult/Info.plist ]; then
-            xcrun xcresulttool get test-results summary --path results/comic.xcresult > results/summary.json
+            xcrun xcresulttool get test-results summary --path results/comic.xcresult | python3 .zeus-ci/redact_ci_log.py > results/summary.json || echo '{"result":"summary unavailable"}' > results/summary.json
           fi
+          if [ "${{ inputs.run_live_comix_smoke }}" = "true" ]; then rm -rf results/comic.xcresult; fi
       - uses: actions/upload-artifact@v4
         if: always()
         with:
