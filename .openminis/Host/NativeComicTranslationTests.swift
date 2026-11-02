@@ -118,6 +118,31 @@ import UIKit
         XCTAssertEqual(speeches.count,2,"Separate bubble interiors must remain separate translations")
         XCTAssertTrue(speeches.allSatisfy{$0.lines.count==1})
     }
+    func testConnectedBubblePairKeepsSeparatePlacementsAndCleansOriginalText()throws{
+        let image=renderer(CGSize(width:320,height:300)).image{context in
+            UIColor.darkGray.setFill();context.fill(CGRect(x:0,y:0,width:320,height:300))
+            UIColor.white.setFill();UIBezierPath(roundedRect:CGRect(x:40,y:20,width:240,height:150),cornerRadius:68).fill();UIBezierPath(roundedRect:CGRect(x:60,y:130,width:240,height:150),cornerRadius:68).fill()
+            UIColor.black.setStroke();let divider=UIBezierPath();divider.move(to:CGPoint(x:80,y:150));divider.addLine(to:CGPoint(x:270,y:150));divider.lineWidth=3;divider.stroke()
+            ("UPPER" as NSString).draw(at:CGPoint(x:102,y:69),withAttributes:[.font:UIFont.systemFont(ofSize:20),.foregroundColor:UIColor.black])
+            ("LOWER" as NSString).draw(at:CGPoint(x:102,y:199),withAttributes:[.font:UIFont.systemFont(ofSize:20),.foregroundColor:UIColor.black])
+        }.cgImage!
+        let upper=ComicLine(text:"UPPER",confidence:0.98,rect:CGRect(x:96,y:65,width:110,height:30)),lower=ComicLine(text:"LOWER",confidence:0.98,rect:CGRect(x:96,y:195,width:110,height:30))
+        let speeches=ComicBalloons.speeches([upper,lower],image:image,source:"en")
+        XCTAssertEqual(speeches.count,2,"A visible divider inside one connected white region marks two speech bubbles")
+        XCTAssertEqual(speeches.map{$0.lines.count},[1,1])
+        XCTAssertLessThan(speeches[0].rect.maxY,speeches[1].rect.minY,"Each translation needs its own non-overlapping bubble placement")
+        XCTAssertTrue(speeches[0].rect.contains(CGPoint(x:upper.rect.midX,y:upper.rect.midY)))
+        XCTAssertTrue(speeches[1].rect.contains(CGPoint(x:lower.rect.midX,y:lower.rect.midY)))
+        let translations=[TranslationSegment(id:speeches[0].id,text:"الفقاعة العليا"),TranslationSegment(id:speeches[1].id,text:"الفقاعة السفلى")]
+        let output=try ComicPixels.render(image,speeches:speeches,translations:translations,target:"ar",fontName:nil,fontScale:1,textColor:"163B72")
+        let pixels=try XCTUnwrap(ComicPixels.rgba(output,width:320,height:300));var upperBlue=0,lowerBlue=0,sourceBlack=0
+        for y in 0..<300{for x in 0..<320{let i=(y*320+x)*4,p=CGPoint(x:x,y:y),blue=Int(pixels[i+2])>Int(pixels[i])+25&&Int(pixels[i+2])>Int(pixels[i+1])+15
+            if blue&&speeches[0].rect.contains(p){upperBlue+=1};if blue&&speeches[1].rect.contains(p){lowerBlue+=1}
+            if (upper.rect.contains(p)||lower.rect.contains(p)),pixels[i]<20&&pixels[i+1]<20&&pixels[i+2]<20{sourceBlack+=1}
+        }}
+        XCTAssertGreaterThan(upperBlue,20);XCTAssertGreaterThan(lowerBlue,20);XCTAssertLessThan(sourceBlack,20,"Original black lettering must be removed before Arabic is painted")
+        let attachment=XCTAttachment(image:UIImage(cgImage:output));attachment.name="Connected speech bubbles - separate Arabic placements";attachment.lifetime = .keepAlways;add(attachment)
+    }
     func testRendererCleanupRemovesGlyphsAndPreservesTexturedGradient()throws{
         let size=CGSize(width:320,height:180)
         func paintBackground(_ context:UIGraphicsImageRendererContext){
