@@ -13,17 +13,17 @@ enum ComicBalloons {
         for line in lines{
             guard let plate=interior(line.rect,pixels:pixels,width:image.width,height:image.height)else{unplated.append(line);continue}
             let candidates=plates.indices.filter{overlap(plates[$0].detected,plate)>0.7}
-            var joined:(Int,CGFloat)?,separated:(Int,CGFloat,ComicLine,Divider)?
+            var nearest:(Int,CGFloat,ComicLine,Divider?)?
             for index in candidates{
                 guard let prior=plates[index].lines.min(by:{distance($0.rect,line.rect)<distance($1.rect,line.rect)})else{continue}
                 let d=distance(prior.rect,line.rect),verticalText=prior.rect.height>prior.rect.width*1.5&&line.rect.height>line.rect.width*1.5
-                if let divider=separatingDivider(prior.rect,line.rect,plate:plates[index].detected,verticalText:verticalText,pixels:pixels,width:image.width,height:image.height){if separated==nil||d<separated!.1{separated=(index,d,prior,divider)}}
-                else if joined==nil||d<joined!.1{joined=(index,d)}
+                let divider=separatingDivider(prior.rect,line.rect,plate:plates[index].detected,verticalText:verticalText,pixels:pixels,width:image.width,height:image.height)
+                if let current=nearest{if d<current.1{nearest=(index,d,prior,divider)}}else{nearest=(index,d,prior,divider)}
             }
-            if let joined{plates[joined.0].lines.append(line)}
-            else if let separated{
-                addSeparated(line,prior:separated.2,divider:separated.3,index:separated.0,detected:plate,plates:&plates)
-            }else{plates.append(Plate(detected:plate,bounds:plate,lines:[line]))}
+            if let nearest,let divider=nearest.3{
+                addSeparated(line,prior:nearest.2,divider:divider,index:nearest.0,detected:plate,plates:&plates)
+            }else if let nearest{plates[nearest.0].lines.append(line)}
+            else{plates.append(Plate(detected:plate,bounds:plate,lines:[line]))}
         }
         // A fragmented OCR box may fail its own flood-fill even though its centre
         // clearly lies inside a neighbouring line's already detected bubble.
