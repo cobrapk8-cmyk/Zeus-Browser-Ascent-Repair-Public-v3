@@ -27,7 +27,7 @@ enum ComicPixels {
     private struct EraseLine { let rect:CGRect; let vertical:Bool }
     private struct RGB { let r:CGFloat; let g:CGFloat; let b:CGFloat }
     private struct Estimate { let color:RGB }
-    private struct Prepared { let speech:ComicSpeech; let area:CGRect; let layout:TextLayout }
+    private struct Prepared { let speech:ComicSpeech; let area:CGRect; let layout:TextLayout; let background:(CGFloat,CGFloat,CGFloat) }
 
     static func render(_ image:CGImage,speeches:[ComicSpeech],translations:[TranslationSegment],target:String,fontName:String?,fontScale:Double,textColor:String? = nil)throws->CGImage{
         guard let context=context(width:image.width,height:image.height),let pixels=rgba(image,width:image.width,height:image.height)else{throw ComicFailure.message("ذاكرة غير كافية للرسم.")}
@@ -45,13 +45,14 @@ enum ComicPixels {
             let sourceHeight=median(speech.lines.map{speech.vertical ? $0.rect.width:$0.rect.height})
             // Measure every layout before touching the source; a failed fit never erases it.
             guard let layout=layout(text,rect:area.insetBy(dx:2,dy:2),target:target,fontName:fontName,fontScale:fontScale,sourceLineHeight:sourceHeight)else{throw ComicFailure.message("لم يتسع النص للفقاعة؛ بقي الأصل دون مسح.")}
-            prepared.append(Prepared(speech:speech,area:area,layout:layout))
+            let background=backgroundColor(pixels,width:image.width,height:image.height,rect:area,excluding:speech.lines)
+            prepared.append(Prepared(speech:speech,area:area,layout:layout,background:background))
         }
         guard let data=context.data else{throw ComicFailure.message("تعذّر الوصول إلى ذاكرة الرسم.")}
         let eraseLines=prepared.flatMap{item in item.speech.lines.map{line in EraseLine(rect:line.rect,vertical:item.speech.vertical)}}
         clean(data.assumingMemoryBound(to:UInt8.self),pixels:pixels,width:image.width,height:image.height,lines:eraseLines)
         for item in prepared{
-            let background=backgroundColor(UnsafePointer(data.assumingMemoryBound(to:UInt8.self)),width:image.width,height:image.height,rect:item.area)
+            let background=item.background
             let automatic=background.0*0.2126+background.1*0.7152+background.2*0.0722>0.5 ? CGColor(gray:0.04,alpha:1):CGColor(gray:0.98,alpha:1)
             let color=textColor.flatMap(Self.color) ?? automatic
             context.saveGState();context.setFillColor(color);context.textMatrix = .identity
@@ -78,7 +79,8 @@ enum ComicPixels {
     static func layout(_ text:String,rect:CGRect,target:String,fontName:String?,fontScale:Double,sourceLineHeight:CGFloat?=nil)->TextLayout?{
         guard rect.width>2,rect.height>2 else{return nil}
         let style=NSMutableParagraphStyle();style.alignment = .center;style.baseWritingDirection=TranslationPreferences.rtl(target) ? .rightToLeft:.leftToRight;style.lineBreakMode = .byWordWrapping
-        let sourceCap=sourceLineHeight.map{max(8,$0*1.32)} ?? 96
+        // OCR boxes may include padding; keep the safety margin deliberately small.
+        let sourceCap=sourceLineHeight.map{max(8,$0*1.10)} ?? 96
         let maximum=min(CGFloat(96),min(rect.height,sourceCap))
         guard maximum>=6 else{return nil}
         var low:CGFloat=6,high=maximum,best:TextLayout?
@@ -93,8 +95,9 @@ enum ComicPixels {
         let chosen=max(6,min(best.size,best.size*scale))
         let font=CTFontCreateWithName((fontName ?? "ArialMT")as CFString,chosen,nil)
         let fitted=NSAttributedString(string:text,attributes:[NSAttributedString.Key(kCTFontAttributeName as String):font,.paragraphStyle:style])
-        let measured=CTFramesetterSuggestFrameSizeWithConstraints(CTFramesetterCreateWithAttributedString(fitted),CFRange(),nil,CGSize(width:rect.width,height:CGFloat.greatestFiniteMagnitude),nil)
-        guard measured.height<=rect.height+0.5 else{return nil}
+        let finalSetter=CTFramesetterCreateWithAttributedString(fitted);var finalFit=CFRange()
+        let measured=CTFramesetterSuggestFrameSizeWithConstraints(finalSetter,CFRange(),nil,CGSize(width:rect.width,height:CGFloat.greatestFiniteMagnitude),&finalFit)
+        guard measured.height<=rect.height+0.5,measured.width<=rect.width+0.5,finalFit.length==fitted.length else{return nil}
         return TextLayout(text:fitted,height:ceil(measured.height),size:chosen)
     }
 
@@ -103,16 +106,23 @@ enum ComicPixels {
         return sorted[sorted.count/2]
     }
     private static func sameLine(_ a:ComicLine,_ b:ComicLine)->Bool{
+        let first=String(a.text.lowercased().filter{$0.isLetter||$0.isNumber}),second=String(b.text.lowercased().filter{$0.isLetter||$0.isNumber})
+        guard !first.isEmpty,first==second else{return false}
         let intersection=a.rect.intersection(b.rect);guard !intersection.isNull else{return false}
         return intersection.width*intersection.height/max(1,min(a.rect.width*a.rect.height,b.rect.width*b.rect.height))>0.72
     }
 
-    private static func backgroundColor(_ pixels:UnsafePointer<UInt8>,width:Int,height:Int,rect:CGRect)->(CGFloat,CGFloat,CGFloat){
+    private static func backgroundColor(_ pixels:[UInt8],width:Int,height:Int,rect:CGRect,excluding lines:[ComicLine])->(CGFloat,CGFloat,CGFloat){
         let x0=max(0,Int(rect.minX)+2),x1=min(width-1,Int(rect.maxX)-2),y0=max(0,Int(rect.minY)+2),y1=min(height-1,Int(rect.maxY)-2)
         guard x1>=x0,y1>=y0 else{return(1,1,1)}
         let stepX=max(1,(x1-x0)/8),stepY=max(1,(y1-y0)/8)
         var samples:[(CGFloat,CGFloat,CGFloat,CGFloat)]=[]
-        for y in stride(from:y0,through:y1,by:stepY){for x in stride(from:x0,through:x1,by:stepX){let i=(y*width+x)*4,r=CGFloat(pixels[i])/255,g=CGFloat(pixels[i+1])/255,b=CGFloat(pixels[i+2])/255,l=r*0.2126+g*0.7152+b*0.0722;samples.append((r,g,b,l))}}
+        for y in stride(from:y0,through:y1,by:stepY){for x in stride(from:x0,through:x1,by:stepX){
+            let point=CGPoint(x:CGFloat(x)+0.5,y:CGFloat(y)+0.5)
+            if lines.contains(where:{$0.rect.insetBy(dx:-2,dy:-2).contains(point)}){continue}
+            let i=(y*width+x)*4,r=CGFloat(pixels[i])/255,g=CGFloat(pixels[i+1])/255,b=CGFloat(pixels[i+2])/255,l=r*0.2126+g*0.7152+b*0.0722;samples.append((r,g,b,l))
+        }}
+        if samples.isEmpty{for y in stride(from:y0,through:y1,by:stepY){for x in stride(from:x0,through:x1,by:stepX){let i=(y*width+x)*4,r=CGFloat(pixels[i])/255,g=CGFloat(pixels[i+1])/255,b=CGFloat(pixels[i+2])/255,l=r*0.2126+g*0.7152+b*0.0722;samples.append((r,g,b,l))}}}
         guard !samples.isEmpty else{return(1,1,1)}
         samples.sort{$0.3<$1.3};let sample=samples[samples.count/2];return(sample.0,sample.1,sample.2)
     }
@@ -137,11 +147,12 @@ enum ComicPixels {
                 let point=CGPoint(x:CGFloat(x)+0.5,y:CGFloat(y)+0.5)
                 let dx=max(0,max(core.minX-point.x,point.x-core.maxX)),dy=max(0,max(core.minY-point.y,point.y-core.maxY)),distance=max(dx,dy)
                 let strength=UInt8((max(0,min(1,1-distance/feather))*255).rounded())
-                if strength>=opacity[index]{opacity[index]=strength;hard[index]=line.vertical ? 2:1}
+                if strength>0 && strength>=opacity[index]{opacity[index]=strength;hard[index]=line.vertical ? 2:1}
             }}
         }
         guard maskMinX<maskMaxX,maskMinY<maskMaxY,opacity.contains(where:{$0>0})else{return}
-        let maxSearch=min(192,max(24,Int(lines.map{$0.vertical ? min($0.rect.width,$0.rect.height):$0.rect.height}.max() ?? 24)*3))
+        let maxGlyph=lines.map{$0.vertical ? min($0.rect.width,$0.rect.height):$0.rect.height}.max() ?? 12
+        let maxSearch=min(128,max(24,Int(maxGlyph*1.8)))
         func sample(_ x:Int,_ y:Int,_ dx:Int,_ dy:Int)->(RGB,Int)?{
             for distance in 1...maxSearch{
                 let sx=x+dx*distance,sy=y+dy*distance

@@ -117,8 +117,9 @@ enum ComicGeometry {
                 }
                 let lineHeight=max(line.rect.height,last.rect.height),minimumHeight=min(line.rect.height,last.rect.height)
                 let minimumWidth=min(line.rect.width,last.rect.width),centerOffset=abs(line.rect.midX-last.rect.midX)
-                let centered=centerOffset<=max(lineHeight*0.65,minimumWidth*0.18)
-                return gap >= -minimumHeight*0.45 && gap<lineHeight*1.6 && (overlap>minimumWidth*0.22 || centered)
+                let centered=centerOffset<=max(lineHeight*0.50,minimumWidth*0.14)
+                let adjacent=gap >= -minimumHeight*0.45 && gap<lineHeight*1.35
+                return adjacent && (overlap>minimumWidth*0.22 || centered)
             }
             if let i=compatible.min(by:{abs(groups[$0].last!.rect.midY-line.rect.midY)<abs(groups[$1].last!.rect.midY-line.rect.midY)}){groups[i].append(line);continue}
             groups.append([line])

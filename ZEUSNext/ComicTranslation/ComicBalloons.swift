@@ -16,8 +16,13 @@ enum ComicBalloons {
         // clearly lies inside a neighbouring line's already detected bubble.
         var remaining:[ComicLine]=[]
         for line in unplated{
-            let ranked=plates.indices.map{($0,overlap(line.rect,plates[$0].0))}.sorted{$0.1>$1.1}
-            if let best=ranked.first,best.1>0.48{plates[best.0].1.append(line)}else{remaining.append(line)}
+            let center=CGPoint(x:line.rect.midX,y:line.rect.midY)
+            let ranked=plates.indices.compactMap{index->(Int,CGFloat)? in
+                let plate=plates[index].0,coverage=lineCoverage(line.rect,plate)
+                guard plate.insetBy(dx:1,dy:1).contains(center),coverage>0.68 else{return nil}
+                return(index,coverage)
+            }.sorted{$0.1>$1.1}
+            if let best=ranked.first,(ranked.count==1||best.1-ranked[1].1>0.15){plates[best.0].1.append(line)}else{remaining.append(line)}
         }
         var result=plates.map{plate,rawLines->ComicSpeech in
             let lines=uniqueLines(rawLines)
@@ -32,12 +37,17 @@ enum ComicBalloons {
     private static func uniqueLines(_ lines:[ComicLine])->[ComicLine]{
         var result:[ComicLine]=[]
         for line in lines.sorted(by:{$0.confidence>$1.confidence}){
-            // Conflicting OCR engines sometimes return the same word twice with
-            // slightly different text. Keep the higher-confidence spatial owner.
-            if result.contains(where:{overlap($0.rect,line.rect)>0.72}){continue}
+            // Keep distinct words even when OCR boxes overlap; collapse only near-identical
+            // geometry with the same normalized text, preferring the higher-confidence read.
+            if result.contains(where:{sameOCR($0,line)}){continue}
             result.append(line)
         }
         return result.sorted{$0.rect.minY<$1.rect.minY}
+    }
+    private static func sameOCR(_ a:ComicLine,_ b:ComicLine)->Bool{
+        let first=String(a.text.lowercased().filter{$0.isLetter||$0.isNumber}),second=String(b.text.lowercased().filter{$0.isLetter||$0.isNumber})
+        guard !first.isEmpty,first==second else{return false}
+        return overlap(a.rect,b.rect)>0.72
     }
     private static func safeRectangle(_ plate:CGRect,pixels:[UInt8],width:Int,height:Int)->CGRect{
         func color(_ x:CGFloat,_ y:CGFloat)->[Int]{let x=max(0,min(width-1,Int(x))),y=max(0,min(height-1,Int(y))),i=(y*width+x)*4;return [Int(pixels[i]),Int(pixels[i+1]),Int(pixels[i+2])]}
@@ -47,6 +57,7 @@ enum ComicBalloons {
         return rectangular ? plate.insetBy(dx:3,dy:3):plate.insetBy(dx:plate.width*0.15,dy:plate.height*0.15)
     }
     private static func overlap(_ a:CGRect,_ b:CGRect)->CGFloat{let intersection=a.intersection(b);guard !intersection.isNull else{return 0};return intersection.width*intersection.height/max(1,min(a.width*a.height,b.width*b.height))}
+    private static func lineCoverage(_ line:CGRect,_ plate:CGRect)->CGFloat{let intersection=line.intersection(plate);guard !intersection.isNull else{return 0};return intersection.width*intersection.height/max(1,line.width*line.height)}
     static func interior(_ text:CGRect,pixels:[UInt8],width:Int,height:Int)->CGRect?{
         guard text.width>2,text.height>2,pixels.count>=width*height*4 else{return nil}
         let margin=min(600,max(text.width*1.3,text.height*3))

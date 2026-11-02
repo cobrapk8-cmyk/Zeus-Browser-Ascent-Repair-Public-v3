@@ -58,7 +58,7 @@ import UIKit
         let rect=CGRect(x:0,y:0,width:250,height:90)
         let normal=try XCTUnwrap(ComicPixels.layout("أين ذهب صديقي؟",rect:rect,target:"ar",fontName:nil,fontScale:1,sourceLineHeight:18))
         let enlarged=try XCTUnwrap(ComicPixels.layout("أين ذهب صديقي؟",rect:rect,target:"ar",fontName:nil,fontScale:1.5,sourceLineHeight:18))
-        XCTAssertLessThanOrEqual(enlarged.size,18*1.32+0.5,"Translated lettering must remain bounded by the source line height")
+        XCTAssertLessThanOrEqual(enlarged.size,18*1.10+0.5,"Translated lettering must remain bounded by the source line height")
         XCTAssertEqual(enlarged.size,normal.size,accuracy:0.5,"User scaling cannot enlarge Arabic beyond the measured fit")
     }
     func testArabicLetteringChangesActualPixelsInsideTheBalloon()throws{
@@ -70,12 +70,14 @@ import UIKit
         let speech=ComicSpeech(id:"0",text:"HELLO",lines:[line],rect:CGRect(x:55,y:20,width:210,height:90),vertical:false,balloon:true)
         let output=try ComicPixels.render(try XCTUnwrap(raster.cgImage),speeches:[speech],translations:[TranslationSegment(id:"0",text:"مرحبًا يا صديقي")],target:"ar",fontName:nil,fontScale:1,textColor:"163B72")
         let pixels=try XCTUnwrap(ComicPixels.rgba(output,width:320,height:200))
-        var blue=0,outside=0
+        var blue=0,outside=0,blackSourcePixels=0
         for y in 0..<200{for x in 0..<320{let i=(y*320+x)*4
+            if speech.rect.contains(CGPoint(x:x,y:y)),pixels[i]<45&&pixels[i+1]<45&&pixels[i+2]<45{blackSourcePixels+=1}
             if Int(pixels[i+2])>Int(pixels[i])+25 && Int(pixels[i+2])>Int(pixels[i+1])+15{blue+=1;if !speech.rect.contains(CGPoint(x:x,y:y)){outside+=1}}
         }}
         XCTAssertGreaterThan(blue,50,"CoreText must draw the selected color into the image")
         XCTAssertEqual(outside,0,"Arabic lettering must remain inside the original balloon")
+        XCTAssertLessThan(blackSourcePixels,20,"The source glyphs should be removed before Arabic is drawn")
         let attachment=XCTAttachment(image:UIImage(cgImage:output));attachment.name="Arabic lettering - actual pixels";attachment.lifetime = .keepAlways;add(attachment)
     }
     func testBalloonInteriorProtectsBordersAndProvidesRoomForArabic()throws{
@@ -103,6 +105,18 @@ import UIKit
         XCTAssertEqual(speeches.count,1,"OCR fragments inside one balloon should share one translation")
         XCTAssertEqual(speeches.first?.lines.count,2,"Duplicate OCR boxes must not be translated or rendered twice")
         XCTAssertEqual(speeches.first?.balloon,true)
+    }
+    func testBalloonGroupingKeepsNeighboringBubblesSeparate()throws{
+        let image=renderer(CGSize(width:320,height:200)).image{context in
+            UIColor.darkGray.setFill();context.fill(CGRect(x:0,y:0,width:320,height:200))
+            UIColor.white.setFill();UIBezierPath(ovalIn:CGRect(x:10,y:20,width:140,height:140)).fill();UIBezierPath(ovalIn:CGRect(x:170,y:20,width:140,height:140)).fill()
+            ("FIRST" as NSString).draw(at:CGPoint(x:44,y:70),withAttributes:[.font:UIFont.systemFont(ofSize:19),.foregroundColor:UIColor.black])
+            ("SECOND" as NSString).draw(at:CGPoint(x:203,y:70),withAttributes:[.font:UIFont.systemFont(ofSize:19),.foregroundColor:UIColor.black])
+        }.cgImage!
+        let lines=[ComicLine(text:"FIRST",confidence:0.95,rect:CGRect(x:38,y:66,width:90,height:30)),ComicLine(text:"SECOND",confidence:0.95,rect:CGRect(x:198,y:66,width:100,height:30))]
+        let speeches=ComicBalloons.speeches(lines,image:image,source:"en")
+        XCTAssertEqual(speeches.count,2,"Separate bubble interiors must remain separate translations")
+        XCTAssertTrue(speeches.allSatisfy{$0.lines.count==1})
     }
     func testRendererCleanupRemovesGlyphsAndPreservesTexturedGradient()throws{
         let size=CGSize(width:320,height:180)
@@ -134,7 +148,8 @@ import UIKit
         let image=renderer(CGSize(width:260,height:130)).image{context in UIColor.white.setFill();context.fill(CGRect(x:0,y:0,width:260,height:130))}.cgImage!
         let line=ComicLine(text:"ORIGINAL",confidence:1,rect:CGRect(x:75,y:45,width:110,height:28))
         let first=ComicSpeech(id:"0",text:"ORIGINAL",lines:[line],rect:CGRect(x:35,y:20,width:190,height:80),vertical:false,balloon:true)
-        let duplicate=ComicSpeech(id:"1",text:"ORIGINAL",lines:[line],rect:first.rect,vertical:false,balloon:true)
+        let nearDuplicate=ComicLine(text:"ORIGINAL",confidence:0.90,rect:line.rect.insetBy(dx:1,dy:1))
+        let duplicate=ComicSpeech(id:"1",text:"ORIGINAL",lines:[nearDuplicate],rect:first.rect,vertical:false,balloon:true)
         let only=try ComicPixels.render(image,speeches:[first],translations:[TranslationSegment(id:"0",text:"أهلاً")],target:"ar",fontName:nil,fontScale:1)
         let both=try ComicPixels.render(image,speeches:[first,duplicate],translations:[TranslationSegment(id:"0",text:"أهلاً"),TranslationSegment(id:"1",text:"تكرار")],target:"ar",fontName:nil,fontScale:1)
         XCTAssertEqual(try ComicPixels.rgba(both,width:260,height:130),try ComicPixels.rgba(only,width:260,height:130))
@@ -145,10 +160,16 @@ import UIKit
         XCTAssertEqual(speeches.count,2);XCTAssertTrue(speeches.contains{$0.lines.count==2})
     }
     func testGeometryGroupsCenteredFragmentsWithLooseLineSpacing(){
-        let lines=[ComicLine(text:"FIRST",confidence:1,rect:CGRect(x:90,y:20,width:100,height:16)),ComicLine(text:"SECOND",confidence:1,rect:CGRect(x:115,y:60,width:50,height:16))]
+        let lines=[ComicLine(text:"FIRST",confidence:1,rect:CGRect(x:90,y:20,width:100,height:16)),ComicLine(text:"SECOND",confidence:1,rect:CGRect(x:115,y:56,width:50,height:16))]
         let speeches=ComicGeometry.group(lines,source:"en")
         XCTAssertEqual(speeches.count,1,"Centered fragments in one text block should not become separately scaled translations")
         XCTAssertEqual(speeches.first?.lines.count,2)
+    }
+    func testGeometryDoesNotJoinSeparatedCenteredBlocks(){
+        let mediumGap=[ComicLine(text:"FIRST",confidence:1,rect:CGRect(x:90,y:20,width:100,height:16)),ComicLine(text:"SECOND",confidence:1,rect:CGRect(x:115,y:60,width:50,height:16))]
+        let distant=[ComicLine(text:"FIRST",confidence:1,rect:CGRect(x:90,y:20,width:100,height:16)),ComicLine(text:"SECOND",confidence:1,rect:CGRect(x:115,y:84,width:50,height:16))]
+        XCTAssertEqual(ComicGeometry.group(mediumGap,source:"en").count,2,"Separated centered balloons must not merge at medium spacing")
+        XCTAssertEqual(ComicGeometry.group(distant,source:"en").count,2,"Distant centered text blocks must not be merged")
     }
     func testArabicOCRVisualOrderDoesNotReverseLatinTokensOrNumbers(){
         XCTAssertEqual(ComicBidi.logicalFromVisual("ابحرم"),"مرحبا")
