@@ -1,6 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 sdk=${1:-iphonesimulator}
+if [ "$sdk" = iphonesimulator ]; then
+  build_arch=$(uname -m)
+  case "$build_arch" in
+    arm64|x86_64) ;;
+    *) echo "Unsupported simulator architecture from uname -m: $build_arch" >&2; exit 1 ;;
+  esac
+else
+  build_arch=arm64
+fi
 root=$(cd "$(dirname "$0")/../.." && pwd)
 root=$(cd "$root" && pwd)
 output="$root/.zeus-ci/comic/build/$sdk"
@@ -11,15 +20,15 @@ fi
 src="$root/.zeus-ci/comic/build/llama"
 test "$(git -C "$src" rev-parse HEAD)" = 74d4f5b041ad837153b0e90fc864b8290e01d8d5
 cmake -S "$src" -B "$output/cmake" -G Ninja \
-  -DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DCMAKE_SYSTEM_NAME=iOS -DCMAKE_SYSTEM_PROCESSOR=arm64 -DCMAKE_OSX_SYSROOT="$sdk" -DCMAKE_OSX_ARCHITECTURES=arm64 -DCMAKE_OSX_DEPLOYMENT_TARGET=18.1 \
+  -DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DCMAKE_SYSTEM_NAME=iOS -DCMAKE_SYSTEM_PROCESSOR="$build_arch" -DCMAKE_OSX_SYSROOT="$sdk" -DCMAKE_OSX_ARCHITECTURES="$build_arch" -DCMAKE_OSX_DEPLOYMENT_TARGET=18.1 \
   -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF -DLLAMA_BUILD_TESTS=OFF -DLLAMA_BUILD_EXAMPLES=OFF -DLLAMA_BUILD_SERVER=OFF \
   -DGGML_METAL=OFF -DGGML_OPENMP=OFF -DLLAMA_CURL=OFF -DGGML_NATIVE=OFF -DGGML_ACCELERATE=ON
 cmake --build "$output/cmake" --target llama -j 3
 if [ "$sdk" = iphonesimulator ]; then minimum=-mios-simulator-version-min=18.1; else minimum=-mios-version-min=18.1; fi
-xcrun --sdk "$sdk" clang++ -std=c++17 -arch arm64 -isysroot "$(xcrun --sdk "$sdk" --show-sdk-path)" \
+xcrun --sdk "$sdk" clang++ -std=c++17 -arch "$build_arch" -isysroot "$(xcrun --sdk "$sdk" --show-sdk-path)" \
   "$minimum" -I"$src/include" -I"$src/ggml/include" \
   -c "$root/Native/ComicRuntime/ZeusComicRuntime.cpp" -o "$output/wrapper.o"
-common=(-G Ninja -DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DCMAKE_SYSTEM_NAME=iOS -DCMAKE_SYSTEM_PROCESSOR=arm64 -DCMAKE_OSX_SYSROOT="$sdk" -DCMAKE_OSX_ARCHITECTURES=arm64 -DCMAKE_OSX_DEPLOYMENT_TARGET=18.1 -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF)
+common=(-G Ninja -DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DCMAKE_SYSTEM_NAME=iOS -DCMAKE_SYSTEM_PROCESSOR="$build_arch" -DCMAKE_OSX_SYSROOT="$sdk" -DCMAKE_OSX_ARCHITECTURES="$build_arch" -DCMAKE_OSX_DEPLOYMENT_TARGET=18.1 -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF)
 for spec in "jpeg https://github.com/libjpeg-turbo/libjpeg-turbo.git 3.1.0" "png https://github.com/pnggroup/libpng.git v1.6.47" "webp https://github.com/webmproject/libwebp.git v1.5.0"; do
   read -r name repository version <<< "$spec"
   source_path="$root/.zeus-ci/comic/build/$name"
@@ -32,7 +41,7 @@ for spec in "jpeg https://github.com/libjpeg-turbo/libjpeg-turbo.git 3.1.0" "png
   cmake -S "$source_path" -B "$output/$name" "${common[@]}" "${flags[@]}"
   cmake --build "$output/$name" -j 3
  done
-xcrun --sdk "$sdk" clang++ -std=c++17 -arch arm64 -isysroot "$(xcrun --sdk "$sdk" --show-sdk-path)" "$minimum" \
+xcrun --sdk "$sdk" clang++ -std=c++17 -arch "$build_arch" -isysroot "$(xcrun --sdk "$sdk" --show-sdk-path)" "$minimum" \
   -I"$root/.zeus-ci/comic/build/jpeg/src" -I"$root/.zeus-ci/comic/build/jpeg" -I"$output/jpeg" -I"$root/.zeus-ci/comic/build/png" -I"$output/png" -I"$root/.zeus-ci/comic/build/webp/src" \
   -c "$root/Native/ComicRuntime/ComicRegionDecoder.cpp" -o "$output/decoder.o"
 python3 - "$output" <<'PY'

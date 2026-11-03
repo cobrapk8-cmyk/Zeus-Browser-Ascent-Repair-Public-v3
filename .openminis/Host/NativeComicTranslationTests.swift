@@ -148,6 +148,42 @@ import UIKit
         XCTAssertGreaterThan(upperBlue,20);XCTAssertGreaterThan(lowerBlue,20);XCTAssertLessThan(sourceBlack,20,"Original black lettering must be removed before Arabic is painted")
         let attachment=XCTAttachment(image:UIImage(cgImage:output));attachment.name="Connected speech bubbles - separate Arabic placements";attachment.lifetime = .keepAlways;add(attachment)
     }
+    func testFartherValidDividerWinsOverCloserNonDividerCandidate()throws{
+        let image=renderer(CGSize(width:320,height:300)).image{context in
+            UIColor.darkGray.setFill();context.fill(CGRect(x:0,y:0,width:320,height:300))
+            UIColor.white.setFill();UIBezierPath(roundedRect:CGRect(x:40,y:20,width:240,height:150),cornerRadius:68).fill();UIBezierPath(roundedRect:CGRect(x:60,y:90,width:240,height:150),cornerRadius:68).fill()
+            UIColor.black.setStroke();let divider=UIBezierPath();divider.move(to:CGPoint(x:80,y:124));divider.addLine(to:CGPoint(x:270,y:124));divider.lineWidth=3;divider.stroke()
+        }.cgImage!
+        let upper=ComicLine(text:"UPPER",confidence:0.98,rect:CGRect(x:96,y:76,width:110,height:24))
+        let nearWithoutDivider=ComicLine(text:"NEAR",confidence:0.98,rect:CGRect(x:106,y:107,width:100,height:18))
+        let lower=ComicLine(text:"LOWER",confidence:0.98,rect:CGRect(x:96,y:139,width:110,height:24))
+        let pixels=try XCTUnwrap(ComicPixels.rgba(image,width:320,height:300))
+        let upperPlate=try XCTUnwrap(ComicBalloons.interior(upper.rect,pixels:pixels,width:320,height:300),"UPPER must have a detected interior")
+        let nearPlate=try XCTUnwrap(ComicBalloons.interior(nearWithoutDivider.rect,pixels:pixels,width:320,height:300),"NEAR must have a detected interior")
+        let lowerPlate=try XCTUnwrap(ComicBalloons.interior(lower.rect,pixels:pixels,width:320,height:300),"LOWER must have a detected interior")
+        func overlap(_ a:CGRect,_ b:CGRect)->CGFloat{
+            let intersection=a.intersection(b);guard !intersection.isNull else{return 0}
+            return intersection.width*intersection.height/max(1,min(a.width*a.height,b.width*b.height))
+        }
+        XCTAssertGreaterThan(overlap(upperPlate,nearPlate),0.7,"UPPER and NEAR must qualify as prior-line candidates")
+        XCTAssertGreaterThan(overlap(nearPlate,lowerPlate),0.7,"The incoming LOWER line must see the existing plate as an overlapping candidate")
+        let speeches=ComicBalloons.speeches([lower,nearWithoutDivider,upper],image:image,source:"en")
+        XCTAssertEqual(speeches.count,2,"A farther prior line with a valid divider must win over the closer OCR box whose bounds cover that divider")
+        XCTAssertEqual(speeches.map{$0.lines.count},[2,1],"The upper lines belong together; the lower line belongs to the separated lobe")
+        XCTAssertEqual(speeches.map{$0.lines.map(\.text)},[["UPPER","NEAR"],["LOWER"]])
+    }
+    func testLongInteriorDrawingStrokeIsNotABalloonDivider(){
+        let image=renderer(CGSize(width:320,height:240)).image{context in
+            UIColor.darkGray.setFill();context.fill(CGRect(x:0,y:0,width:320,height:240))
+            UIColor.white.setFill();UIBezierPath(ovalIn:CGRect(x:40,y:20,width:240,height:200)).fill()
+            UIColor.black.setStroke();let drawingStroke=UIBezierPath();drawingStroke.move(to:CGPoint(x:72,y:90));drawingStroke.addLine(to:CGPoint(x:224,y:150));drawingStroke.lineWidth=3;drawingStroke.stroke()
+        }.cgImage!
+        let upper=ComicLine(text:"FIRST",confidence:0.98,rect:CGRect(x:104,y:60,width:110,height:28))
+        let lower=ComicLine(text:"SECOND",confidence:0.98,rect:CGRect(x:104,y:152,width:110,height:28))
+        let speeches=ComicBalloons.speeches([upper,lower],image:image,source:"en")
+        XCTAssertEqual(speeches.count,1,"A long diagonal artwork stroke has no row-long run and is not a divider between speech bubbles")
+        XCTAssertEqual(speeches.first?.lines.map(\.text),["FIRST","SECOND"])
+    }
     func testRendererCleanupRemovesGlyphsAndPreservesTexturedGradient()throws{
         let size=CGSize(width:320,height:180)
         func paintBackground(_ context:UIGraphicsImageRendererContext){
